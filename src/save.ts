@@ -1,38 +1,64 @@
+import { sanitizeMeta, type Profile } from './sim/meta';
+
 /** Persistent profile, kept in localStorage. */
-export interface SaveData {
-  v: 1;
+export interface SaveData extends Profile {
+  v: 2;
   bestFloor: number;
-  coins: number;
   gems: number;
   runs: number;
   settings: { muted: boolean; speed: number };
 }
 
+/** The key keeps its original name so saves from before meta-progression still load. */
 const KEY = 'shatter-dungeon-save-v1';
 
 /** New players start with enough gems for two revives. */
 export const STARTER_GEMS = 100;
 
 function defaults(): SaveData {
-  return { v: 1, bestFloor: 0, coins: 0, gems: STARTER_GEMS, runs: 0, settings: { muted: false, speed: 1 } };
+  return {
+    v: 2,
+    bestFloor: 0,
+    coins: 0,
+    gems: STARTER_GEMS,
+    runs: 0,
+    xp: 0,
+    upgrades: {},
+    talents: {},
+    settings: { muted: false, speed: 1 },
+  };
 }
 
-export function loadSave(): SaveData {
+const count = (n: unknown): number => Math.max(0, Math.floor(Number(n)) || 0);
+
+/** Turn whatever was stored (including a v1 save, which has no progression) into a valid profile. */
+export function parseSave(raw: string | null): SaveData {
   const d = defaults();
+  if (!raw) return d;
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return d;
-    const p = JSON.parse(raw) as Partial<SaveData>;
+    const p = JSON.parse(raw) as Partial<SaveData> | null;
+    if (!p || typeof p !== 'object') return d;
+    const speed = Number(p.settings?.speed);
     return {
-      v: 1,
-      bestFloor: Number(p.bestFloor) || 0,
-      coins: Number(p.coins) || 0,
-      gems: Number.isFinite(Number(p.gems)) ? Number(p.gems) : d.gems,
-      runs: Number(p.runs) || 0,
-      settings: { muted: Boolean(p.settings?.muted), speed: [1, 2, 4].includes(Number(p.settings?.speed)) ? Number(p.settings?.speed) : 1 },
+      v: 2,
+      bestFloor: count(p.bestFloor),
+      coins: count(p.coins),
+      gems: Number.isFinite(Number(p.gems)) ? count(p.gems) : d.gems,
+      runs: count(p.runs),
+      xp: count(p.xp),
+      ...sanitizeMeta(p.upgrades, p.talents),
+      settings: { muted: Boolean(p.settings?.muted), speed: [1, 2, 4].includes(speed) ? speed : 1 },
     };
   } catch {
     return d;
+  }
+}
+
+export function loadSave(): SaveData {
+  try {
+    return parseSave(localStorage.getItem(KEY));
+  } catch {
+    return defaults();
   }
 }
 

@@ -3,10 +3,21 @@ import { AimInput } from './input';
 import { AD_PLACEMENTS, type Platform } from './platform/platform';
 import { SIMULATED_AD_MS, SimulatedPlatform } from './platform/simulated';
 import { loadSave, writeSave } from './save';
+import {
+  buyUpgrade,
+  freePoints,
+  learnTalent,
+  levelInfo,
+  resetTalents,
+  shopHasOffer,
+  xpForRun,
+  type ShopId,
+} from './sim/meta';
 import { Run } from './sim/run';
 import { H, REVIVE_GEM_COST, W, type Phase } from './sim/types';
 import { Sfx } from './view/audio';
 import { Fx } from './view/fx';
+import { showShop, showTalents } from './view/hub';
 import { Renderer } from './view/renderer';
 import { Screens } from './view/screens';
 
@@ -75,7 +86,47 @@ function showTitle(): void {
   lastPhase = null;
   fx.reset();
   renderer.reset();
-  screens.showTitle(save, startRun);
+  screens.showTitle(
+    {
+      bestFloor: save.bestFloor,
+      coins: save.coins,
+      gems: save.gems,
+      runs: save.runs,
+      level: levelInfo(save.xp).level,
+      points: freePoints(save),
+      forgeOffer: shopHasOffer(save, 'forge'),
+      tavernOffer: shopHasOffer(save, 'tavern'),
+    },
+    { play: startRun, forge: () => openShop('forge'), tavern: () => openShop('tavern'), talents: openTalents },
+  );
+}
+
+function openShop(shop: ShopId): void {
+  showShop(screens, shop, save, {
+    buy: (id) => {
+      if (!buyUpgrade(save, id)) return false;
+      writeSave(save);
+      sfx.perk();
+      return true;
+    },
+    back: showTitle,
+  });
+}
+
+function openTalents(): void {
+  showTalents(screens, save, {
+    learn: (id) => {
+      if (!learnTalent(save, id)) return false;
+      writeSave(save);
+      sfx.perk();
+      return true;
+    },
+    reset: () => {
+      resetTalents(save);
+      writeSave(save);
+    },
+    back: showTitle,
+  });
 }
 
 function startRun(): void {
@@ -83,7 +134,7 @@ function startRun(): void {
   fx.reset();
   renderer.reset();
   screens.close();
-  run = new Run((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0);
+  run = new Run((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0, save);
   lastPhase = null;
   save.runs++;
   writeSave(save);
@@ -92,7 +143,17 @@ function startRun(): void {
 function showPerks(): void {
   const r = run;
   if (!r || r.s.phase !== 'perk' || !r.s.perkChoices) return;
-  screens.showPerks(r.s.perkChoices, r.s.perkReason, r.s.floor, r.s.perks, (i) => r.choosePerk(i));
+  screens.showPerks(
+    r.s.perkChoices,
+    r.s.perkReason,
+    r.s.floor,
+    r.s.perks,
+    (i) => r.choosePerk(i),
+    r.s.rerolls,
+    () => {
+      if (r.rerollPerks()) showPerks();
+    },
+  );
 }
 
 function showDeath(): void {
@@ -135,6 +196,10 @@ function endRun(): void {
   save.bestFloor = Math.max(save.bestFloor, r.s.floor);
   save.coins += pay.coins;
   save.gems += pay.gems;
+  const xp = xpForRun(r.s.floor, r.s.stats.bossKills);
+  const levelBefore = levelInfo(save.xp).level;
+  save.xp += xp;
+  const level = levelInfo(save.xp).level;
   writeSave(save);
   runToken++;
   screens.showResults(
@@ -150,6 +215,10 @@ function endRun(): void {
       coins: pay.coins,
       gems: pay.gems,
       lost: pay.lost,
+      xp,
+      level,
+      levelsGained: level - levelBefore,
+      canSpend: freePoints(save) > 0 || shopHasOffer(save, 'forge') || shopHasOffer(save, 'tavern'),
     },
     startRun,
     showTitle,

@@ -5,8 +5,16 @@
 
 export const isBossFloor = (floor: number): boolean => floor > 0 && floor % 10 === 0;
 
-/** Base HP of a normal block. Individual blocks vary by about ±30%. */
-export const blockHp = (floor: number): number => 10 * Math.pow(1.25, floor - 1);
+/** Up to this floor block HP grows at a steady rate; below it the dungeon steepens. */
+export const DEEP_FLOOR = 20;
+
+/**
+ * Base HP of a normal block. Individual blocks vary by about ±30%.
+ * Steady 25% a floor to DEEP_FLOOR, then an extra factor that itself keeps
+ * growing, so permanent upgrades buy floors without ever making the tower flat.
+ */
+export const blockHp = (floor: number): number =>
+  10 * Math.pow(1.25, floor - 1) * Math.pow(1.02, Math.max(0, floor - DEEP_FLOOR) ** 2);
 
 export const bossHp = (floor: number): number => blockHp(floor) * 35;
 

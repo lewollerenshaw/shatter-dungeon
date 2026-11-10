@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEEP_FLOOR,
   affixChance,
   blockHp,
   bossHp,
@@ -11,13 +12,23 @@ import {
   secondAffixChance,
 } from '../src/sim/scaling';
 
+const growth = (f: number): number => blockHp(f + 1) / blockHp(f);
+
 describe('scaling curves', () => {
   it('block HP grows exponentially from 10', () => {
     expect(blockHp(1)).toBeCloseTo(10);
     const growth = blockHp(2) / blockHp(1);
     expect(growth).toBeGreaterThan(1.1);
     expect(growth).toBeLessThan(1.5);
-    for (let f = 1; f < 100; f++) expect(blockHp(f + 1) / blockHp(f)).toBeCloseTo(growth);
+    for (let f = 1; f < DEEP_FLOOR; f++) expect(blockHp(f + 1) / blockHp(f)).toBeCloseTo(growth);
+  });
+
+  it('the dungeon keeps steepening below the deep floor', () => {
+    let last = growth(DEEP_FLOOR - 1);
+    for (let f = DEEP_FLOOR; f < 60; f++) {
+      expect(growth(f)).toBeGreaterThan(last);
+      last = growth(f);
+    }
   });
 
   it('bosses appear every 10 floors and are far tougher than a block', () => {

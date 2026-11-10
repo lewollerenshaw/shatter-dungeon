@@ -2,14 +2,14 @@ import { PERK_BY_ID, type PerkDef } from '../sim/perks';
 import { REVIVE_GEM_COST, type PerkReason } from '../sim/types';
 import { fmt } from '../util';
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''): HTMLElementTagNameMap[K] {
+export function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
   if (text) e.textContent = text;
   return e;
 }
 
-const GLYPH: Record<PerkDef['icon'], string> = {
+export const GLYPH: Record<PerkDef['icon'], string> = {
   none: '○',
   fire: '▲',
   ice: '◆',
@@ -34,6 +34,24 @@ export interface ResultsData {
   coins: number;
   gems: number;
   lost: number;
+  xp: number;
+  level: number;
+  /** Levels gained by this run (each is a talent point). */
+  levelsGained: number;
+  /** Something in the forge, tavern or talent tree can be bought right now. */
+  canSpend: boolean;
+}
+
+export interface TitleInfo {
+  bestFloor: number;
+  coins: number;
+  gems: number;
+  runs: number;
+  level: number;
+  /** Unspent talent points. */
+  points: number;
+  forgeOffer: boolean;
+  tavernOffer: boolean;
 }
 
 export interface HudState {
@@ -92,7 +110,7 @@ export class Screens {
     this.layer = null;
   }
 
-  private open(cls: string): HTMLElement {
+  open(cls: string): HTMLElement {
     this.close();
     const d = el('div', `screen ${cls}`);
     this.root.appendChild(d);
@@ -100,24 +118,37 @@ export class Screens {
     return d;
   }
 
-  showTitle(info: { bestFloor: number; coins: number; gems: number; runs: number }, onPlay: () => void): void {
+  showTitle(info: TitleInfo, on: { play(): void; forge(): void; tavern(): void; talents(): void }): void {
     const d = this.open('title');
     const logo = el('h1', 'logo');
     logo.append(el('span', 'l1', 'SHATTER'), el('span', 'l2', 'DUNGEON'));
     const wallet = el('div', 'wallet');
     wallet.append(
+      this.stat('Level', String(info.level)),
       this.stat('Best floor', info.bestFloor > 0 ? String(info.bestFloor) : '–'),
       this.stat('Coins', fmt(info.coins), 'gold'),
       this.stat('Gems', fmt(info.gems), 'gem'),
     );
     const play = el('button', 'btn primary', info.runs > 0 ? 'Descend again' : 'Enter the dungeon');
-    play.onclick = onPlay;
+    play.onclick = on.play;
+    const hub = el('div', 'hub');
+    const tile = (cls: string, glyph: string, name: string, sub: string, badge: string, go: () => void): void => {
+      const b = el('button', `tile ${cls}`);
+      b.append(el('span', 'glyph', glyph), el('b', '', name), el('small', '', sub));
+      if (badge) b.append(el('i', 'badge', badge));
+      b.onclick = go;
+      hub.append(b);
+    };
+    tile('forge', '✦', 'Forge', 'Orb upgrades', info.forgeOffer ? '!' : '', on.forge);
+    tile('tavern', '♥', 'Tavern', 'Hero upgrades', info.tavernOffer ? '!' : '', on.tavern);
+    tile('talents', '✸', 'Talents', 'Skill tree', info.points > 0 ? String(info.points) : '', on.talents);
     d.append(
       logo,
       el('p', 'tag', 'Bounce. Chain. Shatter.'),
       wallet,
       play,
-      el('p', 'hint', 'Drag to aim, release to fire. Clear a floor to pick an upgrade. A boss waits every 10 floors.'),
+      hub,
+      el('p', 'hint', 'Drag to aim, release to fire. Beat a boss to bank your coins, then spend them here.'),
     );
   }
 
@@ -133,6 +164,8 @@ export class Screens {
     floor: number,
     owned: Record<string, number>,
     onPick: (index: number) => void,
+    rerolls = 0,
+    onReroll: (() => void) | null = null,
   ): void {
     const d = this.open('perks');
     const title = reason === 'starter' ? 'Choose your first orb' : reason === 'boss' ? 'Boss defeated' : `Floor ${floor} cleared`;
@@ -161,6 +194,13 @@ export class Screens {
       };
       d.append(card);
     });
+    if (onReroll && rerolls > 0 && reason !== 'starter') {
+      const again = el('button', 'btn small', `Reroll  ·  ${rerolls} left`);
+      again.onclick = () => {
+        if (!picked) onReroll();
+      };
+      d.append(again);
+    }
   }
 
   showDeath(
@@ -214,10 +254,16 @@ export class Screens {
     row('Coins kept', `+${fmt(r.coins)}`, 'gold');
     if (r.lost > 0) row('Coins lost (not banked)', `-${fmt(r.lost)}`, 'dim');
     row('Gems earned', `+${fmt(r.gems)}`, 'gem');
+    row('Experience', `+${fmt(r.xp)} XP`);
+    d.append(table);
+    if (r.levelsGained > 0) {
+      const points = r.levelsGained === 1 ? '1 talent point' : `${r.levelsGained} talent points`;
+      d.append(el('p', 'levelup', `Level ${r.level} reached  ·  ${points} to spend`));
+    }
     const again = el('button', 'btn primary', 'Descend again');
     again.onclick = onAgain;
-    const title = el('button', 'btn ghost', 'Back to title');
+    const title = el('button', r.canSpend ? 'btn' : 'btn ghost', r.canSpend ? 'Spend your loot' : 'Back to title');
     title.onclick = onTitle;
-    d.append(table, el('p', 'fine', 'Beat a boss to bank everything you are carrying. Otherwise you keep a quarter.'), again, title);
+    d.append(el('p', 'fine', 'Beat a boss to bank everything you are carrying. Otherwise you keep only a share.'), again, title);
   }
 }

@@ -1,3 +1,5 @@
+import type { MetaState } from './meta';
+
 // Logical playfield. The view scales this to the device.
 export const W = 390;
 export const H = 844;
@@ -124,6 +126,12 @@ export interface RunState {
   turnTime: number;
   resolveTimer: number;
   revived: boolean;
+  /** The profile this run started with (forge, tavern, talents). */
+  meta: MetaState;
+  /** Perk rerolls left this run. */
+  rerolls: number;
+  /** Breaches the hero can still shrug off on this floor. */
+  wards: number;
   stats: RunStats;
   /** coins = at risk until the next boss; banked = safe. Gems bank instantly. */
   loot: { coins: number; banked: number; gems: number };
@@ -159,6 +167,7 @@ export type SimEvent =
   | { t: 'breach'; id: number; x: number; y: number; w: number; h: number; kind: BlockKind; maxHp: number }
   | { t: 'vanish'; id: number; x: number; y: number; w: number; h: number; kind: BlockKind; maxHp: number }
   | { t: 'heroHit'; dmg: number; x: number }
+  | { t: 'ward'; x: number }
   | { t: 'heroHeal'; amount: number }
   | { t: 'descend' }
   | { t: 'summon' }

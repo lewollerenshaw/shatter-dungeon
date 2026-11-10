@@ -53,6 +53,14 @@ export function drawHud(ctx: CanvasRenderingContext2D, run: Run, fx: Fx, time: n
   ctx.globalAlpha = low ? 0.7 + 0.3 * Math.sin(time * 9) : 1;
   bar(ctx, 16, 42, W - 32, 14, hpFrac, grad);
   ctx.globalAlpha = 1;
+  if (s.wards > 0) {
+    // Ward talent: the next breach on this floor is absorbed.
+    ctx.strokeStyle = '#9fe8ff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(13.5, 39.5, W - 27, 19, 9.5);
+    ctx.stroke();
+  }
   ctx.textAlign = 'center';
   ctx.font = `800 10.5px ${FONT}`;
   ctx.fillStyle = '#ffffff';

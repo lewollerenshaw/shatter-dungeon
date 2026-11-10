@@ -1,10 +1,11 @@
+import { NO_META, type MetaState } from '../src/sim/meta';
 import { Run } from '../src/sim/run';
 import type { Contact } from '../src/sim/physics';
 import { BALL_RADIUS, type Ball, type Element } from '../src/sim/types';
 
 /** A run past the starter choice with an empty board and no crits. */
-export function emptyRun(seed = 1): Run {
-  const run = new Run(seed);
+export function emptyRun(seed = 1, meta: MetaState = NO_META): Run {
+  const run = new Run(seed, meta);
   run.choosePerk(0);
   run.s.orbs = ['none'];
   run.s.blocks = [];

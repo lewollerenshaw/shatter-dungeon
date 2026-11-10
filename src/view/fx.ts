@@ -278,6 +278,11 @@ export class Fx {
           sfx.heroHit();
           buzz(60);
           break;
+        case 'ward':
+          this.label(e.x, FIELD_BOTTOM + 14, 'WARDED', '#9fe8ff', 1.1);
+          this.ring(e.x, FIELD_BOTTOM, 70, '#9fe8ff', 0.5, 5);
+          sfx.armor();
+          break;
         case 'heroHeal':
           this.label(W / 2, 74, `+${e.amount} HP`, '#6dff9c', 1.1);
           sfx.heal();

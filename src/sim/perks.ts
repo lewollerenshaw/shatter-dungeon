@@ -1,3 +1,4 @@
+import { NO_META, metaBonus, type MetaState } from './meta';
 import { rand } from './rng';
 import { BALL_RADIUS, type Element, type PerkReason, type RunState } from './types';
 
@@ -59,7 +60,7 @@ export const ORB_BOUNCES = 50;
 
 export const ORB_PERKS = ['ember_orb', 'frost_orb', 'storm_orb', 'venom_orb'];
 
-/** Numbers derived from the perks a run holds. Recomputed whenever a perk is taken. */
+/** Numbers derived from the perks a run holds and the profile it started with. Recomputed whenever a perk is taken. */
 export interface Stats {
   dmg: number;
   critChance: number;
@@ -87,36 +88,66 @@ export interface Stats {
   /** Health fraction below which non-boss blocks die instantly; 0 = off. */
   execute: number;
   prism: boolean;
+  /** Multiplier on hits from elemental orbs. */
+  elementalDmg: number;
+  /** Bonus damage to blocks carrying two status effects; 0 = off. */
+  reaction: number;
+  /** Dying blocks pass their burn, poison and chill to neighbours. */
+  fallout: boolean;
+  /** An orb's first N hits each turn deal `openerBonus` extra. */
+  openerHits: number;
+  openerBonus: number;
+  /** Multiplier on damage the hero takes from breaches. */
+  breachMult: number;
+  /** Extra share of unbanked coins kept when the run ends. */
+  salvage: number;
+  /** Breaches ignored on each floor. */
+  wards: number;
+  /** Cards offered after each floor. */
+  perkChoices: number;
+  /** Extra copies of the starter orb. */
+  starterCopies: number;
 }
 
-export function computeStats(perks: Record<string, number>): Stats {
+export function computeStats(perks: Record<string, number>, meta: MetaState = NO_META): Stats {
   const n = (id: string): number => perks[id] ?? 0;
+  const m = metaBonus(meta);
   const charge = n('static_charge');
   const exec = n('executioner');
   return {
-    dmg: (1 + 0.2 * n('sharpen')) * (1 + 0.1 * n('heavy_core')) * (1 + 0.6 * n('glass_cannon')),
-    critChance: Math.min(0.9, 0.05 + 0.06 * n('keen_eye')),
-    critMult: 2 + 0.5 * n('brutal_crits'),
+    dmg: (1 + 0.2 * n('sharpen')) * (1 + 0.1 * n('heavy_core')) * (1 + 0.6 * n('glass_cannon')) * m.dmg,
+    critChance: Math.min(0.9, 0.05 + 0.06 * n('keen_eye') + m.critChance),
+    critMult: 2 + 0.5 * n('brutal_crits') + m.critMult,
     ballRadius: BALL_RADIUS * (1 + 0.1 * Math.min(5, n('heavy_core'))),
     splitChance: Math.min(0.4, 0.08 * n('split_shot')),
     chainEvery: charge > 0 ? Math.max(2, 6 - charge) : 0,
     chainCount: 2 + n('overload'),
-    chainDmg: 0.5 + 0.15 * n('overload'),
-    burnPower: 1 + 0.5 * n('wildfire'),
-    poisonPower: 1 + 0.5 * n('virulence'),
+    chainDmg: (0.5 + 0.15 * n('overload')) * m.storm,
+    burnPower: (1 + 0.5 * n('wildfire')) * m.fire,
+    poisonPower: (1 + 0.5 * n('virulence')) * m.venom,
     poisonStacks: 1 + n('virulence'),
     poolOnKill: n('toxic_ground') > 0,
     poolStacks: 2 + n('toxic_ground'),
     freezeAt: Math.max(1, 3 - n('deep_freeze')),
-    freezeBonus: 1.5 + 0.25 * n('deep_freeze'),
+    freezeBonus: 1 + (0.5 + 0.25 * n('deep_freeze')) * m.ice,
     pierce: n('piercing'),
     critExplode: 0.5 * n('crit_explosion'),
     comboDmg: 0.02 * n('momentum'),
-    healOnFloor: 12 * n('second_wind'),
-    coinMult: 1 + 0.3 * n('gold_rush'),
-    maxBounces: ORB_BOUNCES + 20 * n('endurance'),
+    healOnFloor: 12 * n('second_wind') + m.healOnFloor,
+    coinMult: (1 + 0.3 * n('gold_rush')) * m.coinMult,
+    maxBounces: ORB_BOUNCES + 20 * n('endurance') + m.bounces,
     execute: exec > 0 ? 0.1 + 0.05 * exec : 0,
     prism: n('prism_core') > 0,
+    elementalDmg: m.elementalDmg,
+    reaction: m.reaction,
+    fallout: m.fallout,
+    openerHits: m.openerHits,
+    openerBonus: m.openerBonus,
+    breachMult: m.breachMult,
+    salvage: m.salvage,
+    wards: m.wards,
+    perkChoices: m.perkChoices,
+    starterCopies: m.starterCopies,
   };
 }
 
@@ -159,10 +190,17 @@ function rarityWeight(r: Rarity, floor: number, reason: PerkReason): number {
   return 5 + floor * 0.5;
 }
 
-/** Three distinct perk ids to offer. The run opens with a choice of elemental orb. */
-export function rollPerks(s: RunState, reason: PerkReason, count = 3): string[] {
+/**
+ * Distinct perk ids to offer. The run opens with a choice of elemental orb.
+ * `exclude` (the hand being rerolled) is avoided when enough other perks exist.
+ */
+export function rollPerks(s: RunState, reason: PerkReason, count = 3, exclude: string[] = []): string[] {
   let pool = PERKS.filter((p) => (s.perks[p.id] ?? 0) < (p.max ?? 99) && (!p.requires || p.requires(s)));
   if (reason === 'starter') pool = pool.filter((p) => ORB_PERKS.includes(p.id));
+  if (exclude.length > 0) {
+    const rest = pool.filter((p) => !exclude.includes(p.id));
+    if (rest.filter((p) => rarityWeight(p.rarity, s.floor, reason) > 0).length >= count) pool = rest;
+  }
   const weighted = pool
     .map((p) => ({ id: p.id, w: rarityWeight(p.rarity, s.floor, reason) }))
     .filter((p) => p.w > 0);

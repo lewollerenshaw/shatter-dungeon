@@ -1,7 +1,8 @@
 import { clamp } from '../util';
 import { endTurnAffixes, rollAffixes, splitBlock } from './affixes';
 import { bossAct, bossPhase, spawnBoss } from './boss';
-import { applyElementHit } from './elements';
+import { addChill, applyElementHit } from './elements';
+import { NO_META, metaBonus, type MetaState } from './meta';
 import { PERK_BY_ID, applyPerk, computeStats, rollPerks, type Stats } from './perks';
 import { Grid, moveBall, traceAim, type Contact, type MoveHooks, type Point } from './physics';
 import { pick, rand, randInt, randRange } from './rng';
@@ -57,7 +58,11 @@ const TEMP_BOUNCES = 15;
 /** Share of un-banked coins kept when a run ends before the next boss. */
 export const UNBANKED_KEEP = 0.25;
 
-function freshState(seed: number): RunState {
+function freshState(seed: number, meta: MetaState): RunState {
+  const m = metaBonus(meta);
+  const hp = 100 + m.maxHp;
+  const orbs: Element[] = ['none', 'none', 'none'];
+  for (let i = 0; i < m.extraOrbs; i++) orbs.push('none');
   return {
     seed,
     rng: seed | 0,
@@ -70,14 +75,14 @@ function freshState(seed: number): RunState {
     rowsLeft: 0,
     rowsTotal: 0,
     balls: [],
-    orbs: ['none', 'none', 'none'],
+    orbs,
     volley: [],
     toLaunch: 0,
     launchTimer: 0,
     launchAngle: Math.PI / 2,
     launchX: W / 2,
     nextLaunchX: null,
-    hero: { hp: 100, maxHp: 100 },
+    hero: { hp, maxHp: hp },
     perks: {},
     perkChoices: null,
     perkReason: 'starter',
@@ -85,6 +90,9 @@ function freshState(seed: number): RunState {
     turnTime: 0,
     resolveTimer: 0,
     revived: false,
+    meta: { upgrades: { ...meta.upgrades }, talents: { ...meta.talents } },
+    rerolls: m.rerolls,
+    wards: 0,
     stats: { damage: 0, kills: 0, crits: 0, turns: 0, maxCombo: 0, maxHit: 0, bossKills: 0 },
     loot: { coins: 0, banked: 0, gems: 0 },
   };
@@ -94,6 +102,7 @@ function freshState(seed: number): RunState {
  * One run of the dungeon. Pure simulation: no DOM, no wall-clock, all
  * randomness from the seeded state. `s` is plain data, so
  * `new Run(structuredClone(run.s))` gives an independent copy for lookahead.
+ * A new run takes the player's permanent upgrades as `meta` and keeps a copy.
  * The view layer reads `s` and drains `events`.
  */
 export class Run {
@@ -109,21 +118,21 @@ export class Run {
   private purge = false;
   private readonly hooks: MoveHooks;
 
-  constructor(init: number | RunState) {
+  constructor(init: number | RunState, meta: MetaState = NO_META) {
     this.hooks = {
       hit: (ball, block, c) => this.hitBlock(ball, block, c),
       wall: (ball) => this.emit({ t: 'wall', x: ball.x, y: ball.y }),
     };
     if (typeof init === 'number') {
-      this.s = freshState(init);
-      this.stats = computeStats(this.s.perks);
+      this.s = freshState(init, meta);
+      this.stats = computeStats(this.s.perks, this.s.meta);
       this.startFloor(1);
       this.s.phase = 'perk';
       this.s.perkReason = 'starter';
-      this.s.perkChoices = rollPerks(this.s, 'starter');
+      this.s.perkChoices = rollPerks(this.s, 'starter', this.stats.perkChoices);
     } else {
       this.s = init;
-      this.stats = computeStats(init.perks);
+      this.stats = computeStats(init.perks, init.meta);
       this.grid.rebuild(init.blocks);
     }
   }
@@ -162,7 +171,7 @@ export class Run {
   }
 
   refreshStats(): void {
-    this.stats = computeStats(this.s.perks);
+    this.stats = computeStats(this.s.perks, this.s.meta);
   }
 
   /** Path the first orb would take, for the aim preview. */
@@ -173,7 +182,7 @@ export class Run {
 
   /** Coins and gems the player keeps if the run ended now. */
   payout(): { coins: number; gems: number; lost: number } {
-    const kept = Math.floor(this.s.loot.coins * UNBANKED_KEEP);
+    const kept = Math.floor(this.s.loot.coins * Math.min(1, UNBANKED_KEEP + this.stats.salvage));
     return { coins: this.s.loot.banked + kept, gems: this.s.loot.gems, lost: this.s.loot.coins - kept };
   }
 
@@ -271,6 +280,7 @@ export class Run {
     s.pools = [];
     s.blocks = [];
     s.balls = [];
+    s.wards = this.stats.wards;
     this.grid.clear();
     if (isBossFloor(floor)) {
       s.rowsTotal = 0;
@@ -322,13 +332,23 @@ export class Run {
     if (!id || !PERK_BY_ID[id]) return false;
     s.perks[id] = (s.perks[id] ?? 0) + 1;
     applyPerk(s, id);
+    const starter = s.perkReason === 'starter';
+    if (starter) for (let i = 0; i < this.stats.starterCopies; i++) applyPerk(s, id);
     this.refreshStats();
     this.emit({ t: 'perk', id });
-    const starter = s.perkReason === 'starter';
     s.perkChoices = null;
     if (!starter) this.startFloor(s.floor + 1);
     s.phase = 'resolve';
     s.resolveTimer = 0.35;
+    return true;
+  }
+
+  /** Swap the offered perks for a fresh hand. Not available for the starter orb. */
+  rerollPerks(): boolean {
+    const s = this.s;
+    if (s.phase !== 'perk' || !s.perkChoices || s.perkReason === 'starter' || s.rerolls <= 0) return false;
+    s.rerolls--;
+    s.perkChoices = rollPerks(s, s.perkReason, this.stats.perkChoices, s.perkChoices);
     return true;
   }
 
@@ -516,6 +536,8 @@ export class Run {
 
     let dmg = BASE_DMG * st.dmg * (1 + st.comboDmg * Math.min(s.combo, 100));
     if (ball.temp) dmg *= 0.5;
+    else if (ball.bounces <= st.openerHits) dmg *= 1 + st.openerBonus;
+    if (ball.element !== 'none') dmg *= st.elementalDmg;
     const crit = rand(s) < st.critChance;
     if (crit) {
       dmg *= st.critMult;
@@ -556,6 +578,10 @@ export class Run {
     const s = this.s;
     const st = this.stats;
     if (b.frozen > 0) amount *= st.freezeBonus;
+    if (st.reaction > 0) {
+      const marks = (b.burn > 0 ? 1 : 0) + (b.poison > 0 ? 1 : 0) + (b.chill > 0 || b.frozen > 0 ? 1 : 0);
+      if (marks >= 2) amount *= 1 + st.reaction;
+    }
     const dealt = amount;
     if (b.shield > 0) {
       b.shieldHit = true;
@@ -641,10 +667,28 @@ export class Run {
       if (b.burn > 0) {
         this.blast(b, BASE_DMG * st.dmg * (1 + 0.5 * Math.min(b.burn, 20)) * st.burnPower, 1, 'fire');
       }
+      if (st.fallout) this.fallout(b);
       if (b.affixes.includes('splitter')) splitBlock(this, b);
       if (b.poison > 0 || st.poolOnKill) this.addPool(b.col, b.row, st.poolStacks);
     }
     this.purge = false;
+  }
+
+  /** Fallout talent: a dying block passes a third of its burn and poison, and its chill, to its neighbours. */
+  private fallout(b: Block): void {
+    const burn = Math.ceil(b.burn / 3);
+    const poison = Math.ceil(b.poison / 3);
+    const cold = b.frozen > 0;
+    if (burn === 0 && poison === 0 && !cold) return;
+    for (const o of this.neighbours(b)) {
+      o.burn += burn;
+      o.poison += poison;
+      if (cold) addChill(this, o, 1);
+      if (poison > 0) {
+        const [x, y] = this.center(o);
+        this.emit({ t: 'poolHit', id: o.id, x, y });
+      }
+    }
   }
 
   // ------------------------------------------------------------ end of turn
@@ -742,10 +786,16 @@ export class Run {
   private breach(b: Block): void {
     const s = this.s;
     const base = breachDamage(s.floor);
-    const dmg = b.kind === 'boss' ? base * 4 : b.kind === 'elite' ? Math.round(base * 1.5) : base;
-    s.hero.hp -= dmg;
+    const raw = b.kind === 'boss' ? base * 4 : b.kind === 'elite' ? base * 1.5 : base;
+    const dmg = Math.max(1, Math.round(raw * this.stats.breachMult));
     const [x, y] = this.center(b);
-    this.emit({ t: 'heroHit', dmg, x });
+    if (s.wards > 0) {
+      s.wards--;
+      this.emit({ t: 'ward', x });
+    } else {
+      s.hero.hp -= dmg;
+      this.emit({ t: 'heroHit', dmg, x });
+    }
     if (b.kind === 'boss') {
       // The boss slams, then recoils back up the board, crushing what is in its way.
       this.grid.remove(b);
@@ -806,6 +856,6 @@ export class Run {
     s.combo = 0;
     s.phase = 'perk';
     s.perkReason = boss ? 'boss' : 'floor';
-    s.perkChoices = rollPerks(s, s.perkReason);
+    s.perkChoices = rollPerks(s, s.perkReason, this.stats.perkChoices);
   }
 }
