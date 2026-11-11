@@ -266,7 +266,7 @@ describe('save file', () => {
   it('loads a save from before progression existed', () => {
     const s = parseSave(JSON.stringify({ v: 1, bestFloor: 14, coins: 320, gems: 65, runs: 9, settings: { muted: true, speed: 2 } }));
     expect(s).toMatchObject({
-      v: 3,
+      v: 4,
       bestFloor: 14,
       coins: 320,
       gems: 65,

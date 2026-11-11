@@ -64,6 +64,8 @@ export interface TitleInfo {
   passRewards: number;
   /** Live energy readout. */
   energy: string;
+  /** Time left in this week's tower, e.g. "3d 4h". */
+  towerLeft: string;
 }
 
 export interface HudState {
@@ -141,7 +143,16 @@ export class Screens {
 
   showTitle(
     info: TitleInfo,
-    on: { play(): void; forge(): void; tavern(): void; talents(): void; orbs(): void; store(): void; pass(): void },
+    on: {
+      play(): void;
+      tower(): void;
+      forge(): void;
+      tavern(): void;
+      talents(): void;
+      orbs(): void;
+      store(): void;
+      pass(): void;
+    },
   ): void {
     const d = this.open('title');
     const logo = el('h1', 'logo');
@@ -155,6 +166,9 @@ export class Screens {
     );
     const play = el('button', 'btn primary', info.runs > 0 ? 'Descend again' : 'Enter the dungeon');
     play.onclick = on.play;
+    const tower = el('button', 'btn towerbtn');
+    tower.append(el('b', '', 'Weekly Tower'), el('small', '', `Leaderboard  ·  ${info.towerLeft} left`));
+    tower.onclick = on.tower;
     const energy = el('p', 'energy', info.energy);
     energy.dataset.energy = '';
     const tile = (row: HTMLElement, cls: string, glyph: string, name: string, sub: string, badge: string, go: () => void): void => {
@@ -172,7 +186,7 @@ export class Screens {
     tile(shop, 'orbs', '○', 'Orbs', 'Collect, merge', info.orbsOffer ? '!' : '', on.orbs);
     tile(shop, 'store', '▣', 'Store', 'Chests, gems', info.chests > 0 ? String(info.chests) : '', on.store);
     tile(shop, 'pass', '★', 'Pass', 'Season rewards', info.passRewards > 0 ? String(info.passRewards) : '', on.pass);
-    d.append(logo, el('p', 'tag', 'Bounce. Chain. Shatter.'), wallet, play, energy, upgrades, shop);
+    d.append(logo, el('p', 'tag', 'Bounce. Chain. Shatter.'), wallet, play, tower, energy, upgrades, shop);
     if (info.runs === 0) {
       d.append(el('p', 'hint', 'Drag to aim, release to fire. Beat a boss to bank your coins, then spend them here.'));
     }
@@ -192,10 +206,11 @@ export class Screens {
     onPick: (index: number) => void,
     rerolls = 0,
     onReroll: (() => void) | null = null,
+    tower = false,
   ): void {
     const d = this.open('perks');
     const title = reason === 'starter' ? 'Choose your first orb' : reason === 'boss' ? 'Boss defeated' : `Floor ${floor} cleared`;
-    const sub = reason === 'starter' ? 'It joins your three plain orbs.' : reason === 'boss' ? 'Loot banked. Claim a rare reward.' : 'Choose an upgrade.';
+    const sub = reason === 'starter' ? 'It joins your three plain orbs.' : reason === 'boss' ? (tower ? 'Claim a rare reward.' : 'Loot banked. Claim a rare reward.') : 'Choose an upgrade.';
     d.append(el('h2', reason === 'boss' ? 'gold' : '', title), el('p', 'sub', sub));
     let picked = false;
     choices.forEach((id, i) => {

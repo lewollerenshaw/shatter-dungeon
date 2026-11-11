@@ -126,6 +126,10 @@ export interface RunState {
   turnTime: number;
   resolveTimer: number;
   revived: boolean;
+  /** Fixed steps simulated so far. Inputs that depend on timing are logged against this. */
+  ticks: number;
+  /** Weekly tower run: one life, no coins. */
+  tower: boolean;
   /** The profile this run started with (forge, tavern, talents). */
   meta: MetaState;
   /** Perk rerolls left this run. */
@@ -136,6 +140,13 @@ export interface RunState {
   /** coins = at risk until the next boss; banked = safe. Gems bank instantly. */
   loot: { coins: number; banked: number; gems: number };
 }
+
+/**
+ * One thing the player did, in the order it happened: fire at an angle,
+ * pick perk i, reroll the perks, recall the orbs at tick t, revive.
+ * A run's seed, profile and input log are enough to replay it exactly.
+ */
+export type RunInput = ['f', number] | ['p', number] | ['r'] | ['c', number] | ['v'];
 
 export type SimEvent =
   | { t: 'launch'; x: number; y: number; element: Element }

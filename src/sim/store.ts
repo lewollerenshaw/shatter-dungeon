@@ -190,6 +190,8 @@ export interface RunOutcome {
   gems: number;
   floor: number;
   bossKills: number;
+  /** Wooden Chests to award. Defaults to one per boss; tower runs pass 0. */
+  chests?: number;
 }
 
 export interface RunPayout {
@@ -212,6 +214,7 @@ export function settleRun(w: Wallet, run: RunOutcome, now: number): RunPayout {
   syncPass(w.pass, now);
   const tierBefore = passTier(w.pass);
   w.pass.xp += xp;
-  w.chests.wood += run.bossKills;
-  return { xp, level, levelsGained: level - before, chests: run.bossKills, passTiersGained: passTier(w.pass) - tierBefore };
+  const chests = run.chests ?? run.bossKills;
+  w.chests.wood += chests;
+  return { xp, level, levelsGained: level - before, chests, passTiersGained: passTier(w.pass) - tierBefore };
 }

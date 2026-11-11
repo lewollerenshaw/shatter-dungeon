@@ -1,4 +1,5 @@
 import { clamp } from '../util';
+import { dcos, dsin } from './dmath';
 import { endTurnAffixes, rollAffixes, splitBlock } from './affixes';
 import { bossAct, bossPhase, spawnBoss } from './boss';
 import { addChill, applyElementHit } from './elements';
@@ -37,6 +38,7 @@ import {
   type BlockKind,
   type DmgSrc,
   type Element,
+  type RunInput,
   type RunState,
   type SimEvent,
 } from './types';
@@ -58,7 +60,12 @@ const TEMP_BOUNCES = 15;
 /** Share of un-banked coins kept when a run ends before the next boss. */
 export const UNBANKED_KEEP = 0.25;
 
-function freshState(seed: number, meta: MetaState): RunState {
+export interface RunOptions {
+  /** Weekly tower rules: no revive, and coin perks are not offered. */
+  tower?: boolean;
+}
+
+function freshState(seed: number, meta: MetaState, opts: RunOptions): RunState {
   const m = metaBonus(meta);
   const hp = 100 + m.maxHp;
   const orbs: Element[] = ['none', 'none', 'none'];
@@ -90,6 +97,8 @@ function freshState(seed: number, meta: MetaState): RunState {
     turnTime: 0,
     resolveTimer: 0,
     revived: false,
+    ticks: 0,
+    tower: opts.tower ?? false,
     meta: { upgrades: { ...meta.upgrades }, talents: { ...meta.talents }, orbs: { ...meta.orbs } },
     rerolls: m.rerolls,
     wards: 0,
@@ -112,19 +121,21 @@ export class Run {
   events: SimEvent[] = [];
   /** Skip event recording (headless simulation). */
   silent = false;
+  /** Everything the player has done this run, for replays. Starts empty on a cloned run. */
+  log: RunInput[] = [];
 
   private acc = 0;
   private deaths: Block[] = [];
   private purge = false;
   private readonly hooks: MoveHooks;
 
-  constructor(init: number | RunState, meta: MetaState = NO_META) {
+  constructor(init: number | RunState, meta: MetaState = NO_META, opts: RunOptions = {}) {
     this.hooks = {
       hit: (ball, block, c) => this.hitBlock(ball, block, c),
       wall: (ball) => this.emit({ t: 'wall', x: ball.x, y: ball.y }),
     };
     if (typeof init === 'number') {
-      this.s = freshState(init, meta);
+      this.s = freshState(init, meta, opts);
       this.stats = computeStats(this.s.perks, this.s.meta);
       this.startFloor(1);
       this.s.phase = 'perk';
@@ -314,13 +325,21 @@ export class Run {
     s.turnTime = 0;
     s.nextLaunchX = null;
     s.phase = 'firing';
+    this.log.push(['f', angle]);
     return true;
   }
 
-  /** Call every orb home early. */
+  /** The player calls every orb home early. */
   recall(): void {
     const s = this.s;
     if (s.phase !== 'firing') return;
+    if (s.toLaunch >= s.volley.length && s.balls.every((b) => b.recalled)) return;
+    this.log.push(['c', s.ticks]);
+    this.recallAll();
+  }
+
+  private recallAll(): void {
+    const s = this.s;
     s.toLaunch = s.volley.length;
     for (const b of s.balls) b.recalled = true;
   }
@@ -335,6 +354,7 @@ export class Run {
     const starter = s.perkReason === 'starter';
     if (starter) for (let i = 0; i < this.stats.starterCopies; i++) applyPerk(s, id);
     this.refreshStats();
+    this.log.push(['p', index]);
     this.emit({ t: 'perk', id });
     s.perkChoices = null;
     if (!starter) this.startFloor(s.floor + 1);
@@ -349,14 +369,16 @@ export class Run {
     if (s.phase !== 'perk' || !s.perkChoices || s.perkReason === 'starter' || s.rerolls <= 0) return false;
     s.rerolls--;
     s.perkChoices = rollPerks(s, s.perkReason, this.stats.perkChoices, s.perkChoices);
+    this.log.push(['r']);
     return true;
   }
 
-  /** Once per run: clear the board and stand back up at half health. */
+  /** Once per run: clear the board and stand back up at half health. Never in the tower. */
   revive(): boolean {
     const s = this.s;
-    if (s.phase !== 'dead' || s.revived) return false;
+    if (s.phase !== 'dead' || s.revived || s.tower) return false;
     s.revived = true;
+    this.log.push(['v']);
     s.hero.hp = Math.ceil(s.hero.maxHp / 2);
     s.pools = [];
     const boss = s.blocks.find((b) => b.kind === 'boss');
@@ -405,8 +427,11 @@ export class Run {
     if (guard >= 96) this.acc = 0;
   }
 
-  private step(): void {
+  /** Advance exactly one fixed step. Does nothing while the run waits for the player. */
+  step(): void {
     const s = this.s;
+    if (s.phase !== 'firing' && s.phase !== 'resolve') return;
+    s.ticks++;
     if (s.phase === 'firing') {
       this.stepFiring();
     } else if (s.phase === 'resolve') {
@@ -447,7 +472,7 @@ export class Run {
     if (anyDone) s.balls = balls.filter((b) => !b.done);
 
     // Nothing left to hit, or the turn has run too long: bring everything home.
-    if (s.blocks.length === 0 || s.turnTime > TURN_LIMIT) this.recall();
+    if (s.blocks.length === 0 || s.turnTime > TURN_LIMIT) this.recallAll();
 
     if (s.toLaunch >= s.volley.length && s.balls.length === 0) this.endTurn();
   }
@@ -459,8 +484,8 @@ export class Run {
       id: s.nextId++,
       x: s.launchX,
       y: LAUNCH_Y - 1,
-      vx: Math.cos(a) * BALL_SPEED,
-      vy: -Math.sin(a) * BALL_SPEED,
+      vx: dcos(a) * BALL_SPEED,
+      vy: -dsin(a) * BALL_SPEED,
       r: this.stats.ballRadius,
       element,
       temp: false,
@@ -490,8 +515,8 @@ export class Run {
       id: s.nextId++,
       x: ball.x,
       y: ball.y,
-      vx: Math.cos(a) * BALL_SPEED,
-      vy: dir * Math.sin(a) * BALL_SPEED,
+      vx: dcos(a) * BALL_SPEED,
+      vy: dir * dsin(a) * BALL_SPEED,
       r: ball.r * 0.8,
       element: ball.element,
       temp: true,
@@ -620,12 +645,12 @@ export class Run {
   /** Lightning arcs from `source` to the nearest blocks. */
   chain(source: Block, dmg: number, count: number): void {
     const [sx, sy] = this.center(source);
-    const reach = (2.6 * CELL) ** 2;
+    const reach = 2.6 * CELL * (2.6 * CELL);
     const cands: { o: Block; d: number }[] = [];
     for (const o of this.s.blocks) {
       if (o === source || o.dead) continue;
       const [ox, oy] = this.center(o);
-      const d = (ox - sx) ** 2 + (oy - sy) ** 2;
+      const d = (ox - sx) * (ox - sx) + (oy - sy) * (oy - sy);
       if (d <= reach) cands.push({ o, d });
     }
     cands.sort((a, b) => a.d - b.d || a.o.id - b.o.id);

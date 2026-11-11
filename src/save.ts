@@ -2,22 +2,71 @@ import { ENERGY_MAX, newEnergy, type EnergyState } from './sim/energy';
 import { sanitizeMeta } from './sim/meta';
 import { CHEST_IDS, sanitizeInventory, type ChestId } from './sim/orbs';
 import { sanitizePass } from './sim/pass';
+import { isRunInput } from './sim/replay';
 import { STARTER_GEMS, newWallet, type Wallet } from './sim/store';
+import { cleanName, towerWeek, type TowerScore } from './sim/tower';
+import type { RunInput } from './sim/types';
+
+/** The player's side of the Weekly Tower. */
+export interface TowerSave {
+  /** Random id that stands for this player on the leaderboard. Never shown to others. */
+  playerId: string;
+  name: string;
+  /** The week `best` and `pending` belong to. */
+  week: number;
+  best: TowerScore | null;
+  /** A best run the server has not confirmed yet. */
+  pending: { week: number; log: RunInput[] } | null;
+}
 
 /** Persistent profile, kept in localStorage. */
 export interface SaveData extends Wallet {
-  v: 3;
+  v: 4;
   bestFloor: number;
   runs: number;
   settings: { muted: boolean; speed: number };
+  tower: TowerSave;
 }
 
 /** The key keeps its original name so saves from earlier versions still load. */
 const KEY = 'shatter-dungeon-save-v1';
 
+function newPlayerId(): string {
+  // randomUUID needs a secure context, which a phone on the local network does not have.
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  let id = '';
+  for (let i = 0; i < 32; i++) id += Math.floor(Math.random() * 16).toString(16);
+  return id;
+}
+
+function newTower(now: number): TowerSave {
+  return {
+    playerId: newPlayerId(),
+    name: `Climber ${1000 + Math.floor(Math.random() * 9000)}`,
+    week: towerWeek(now),
+    best: null,
+    pending: null,
+  };
+}
+
 function defaults(now: number): SaveData {
   const seed = (now ^ (Math.random() * 0x7fffffff)) | 0;
-  return { v: 3, bestFloor: 0, runs: 0, settings: { muted: false, speed: 1 }, ...newWallet(now, seed) };
+  return { v: 4, bestFloor: 0, runs: 0, settings: { muted: false, speed: 1 }, tower: newTower(now), ...newWallet(now, seed) };
+}
+
+function readTower(raw: unknown, now: number): TowerSave {
+  const fresh = newTower(now);
+  const t = raw as Partial<TowerSave> | null;
+  if (!t || typeof t !== 'object') return fresh;
+  const playerId = typeof t.playerId === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(t.playerId) ? t.playerId : fresh.playerId;
+  const name = cleanName(t.name) ?? fresh.name;
+  // Scores from an earlier week no longer count.
+  if (t.week !== fresh.week) return { ...fresh, playerId, name };
+  const best = t.best && Number.isFinite(Number(t.best.floor)) ? { floor: count(t.best.floor), kills: count(t.best.kills) } : null;
+  const p = t.pending;
+  const pending =
+    p && p.week === fresh.week && Array.isArray(p.log) && p.log.every(isRunInput) ? { week: fresh.week, log: p.log } : null;
+  return { playerId, name, week: fresh.week, best, pending };
 }
 
 const count = (n: unknown): number => Math.max(0, Math.floor(Number(n)) || 0);
@@ -32,8 +81,8 @@ function readEnergy(raw: unknown, now: number): EnergyState {
 
 /**
  * Turn whatever was stored into a valid profile. Older saves lack later
- * fields (v1 has no progression, v2 no collection, energy or pass) and get
- * the new-player values for those.
+ * fields (v1 has no progression, v2 no collection, energy or pass, v3 no
+ * tower identity) and get the new-player values for those.
  */
 export function parseSave(raw: string | null, now: number = Date.now()): SaveData {
   const d = defaults(now);
@@ -45,9 +94,10 @@ export function parseSave(raw: string | null, now: number = Date.now()): SaveDat
     const chests = {} as Record<ChestId, number>;
     for (const id of CHEST_IDS) chests[id] = count(p.chests?.[id]);
     return {
-      v: 3,
+      v: 4,
       bestFloor: count(p.bestFloor),
       runs: count(p.runs),
+      tower: readTower(p.tower, now),
       settings: { muted: Boolean(p.settings?.muted), speed: [1, 2, 4].includes(speed) ? speed : 1 },
       coins: count(p.coins),
       gems: Number.isFinite(Number(p.gems)) ? count(p.gems) : STARTER_GEMS,

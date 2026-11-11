@@ -1,3 +1,5 @@
+import { ipow } from './dmath';
+
 /**
  * Every difficulty and economy curve lives here so the whole game can be
  * rebalanced from one file. Tune with `npm run sim`.
@@ -14,7 +16,7 @@ export const DEEP_FLOOR = 20;
  * growing, so permanent upgrades buy floors without ever making the tower flat.
  */
 export const blockHp = (floor: number): number =>
-  10 * Math.pow(1.25, floor - 1) * Math.pow(1.02, Math.max(0, floor - DEEP_FLOOR) ** 2);
+  10 * ipow(1.25, floor - 1) * ipow(1.02, Math.max(0, floor - DEEP_FLOOR) * Math.max(0, floor - DEEP_FLOOR));
 
 export const bossHp = (floor: number): number => blockHp(floor) * 35;
 

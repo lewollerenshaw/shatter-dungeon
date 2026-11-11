@@ -5,10 +5,10 @@
  */
 import type { MetaState } from '../src/sim/meta';
 import { xpForRun } from '../src/sim/meta';
-import { Run } from '../src/sim/run';
+import { Run, type RunOptions } from '../src/sim/run';
 import { rand } from '../src/sim/rng';
 import { blockHp, breachDamage } from '../src/sim/scaling';
-import { MIN_AIM } from '../src/sim/types';
+import { MIN_AIM, type RunInput } from '../src/sim/types';
 
 export const MAX_FLOOR = 60;
 
@@ -39,12 +39,17 @@ export interface Result {
   coins: number;
   xp: number;
   bossKills: number;
+  kills: number;
+  dead: boolean;
+  /** Everything the bot did, replayable with src/sim/replay.ts. */
+  log: RunInput[];
 }
 
-export function playRun(seed: number, meta: MetaState, angles: number): Result {
-  const run = new Run(seed, meta);
+/** `botSeed` drives the bot's own choices (perk picks), separately from the run's seed. */
+export function playRun(seed: number, meta: MetaState, angles: number, opts: RunOptions = {}, botSeed = seed): Result {
+  const run = new Run(seed, meta, opts);
   run.silent = true;
-  const bot = { rng: seed ^ 0x9e3779b9 };
+  const bot = { rng: botSeed ^ 0x9e3779b9 };
   let longestTurn = 0;
   let stalled = 0;
   let turnTime = 0;
@@ -91,5 +96,8 @@ export function playRun(seed: number, meta: MetaState, angles: number): Result {
     coins: run.payout().coins,
     xp: xpForRun(run.s.floor, run.s.stats.bossKills),
     bossKills: run.s.stats.bossKills,
+    kills: run.s.stats.kills,
+    dead: run.s.phase === 'dead',
+    log: run.log,
   };
 }

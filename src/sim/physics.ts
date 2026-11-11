@@ -1,3 +1,4 @@
+import { dcos, dsin, length } from './dmath';
 import {
   BLOCK_PAD,
   CELL,
@@ -120,7 +121,7 @@ export const MIN_VERTICAL = 0.14;
 
 /** Stops balls getting stuck bouncing sideways forever. Prefers heading down. */
 export function fixAngle(ball: Ball): void {
-  const sp = Math.hypot(ball.vx, ball.vy);
+  const sp = length(ball.vx, ball.vy);
   if (sp === 0) return;
   const min = sp * MIN_VERTICAL;
   if (Math.abs(ball.vy) >= min) return;
@@ -137,7 +138,7 @@ const seen: number[] = [0, 0, 0, 0];
  * has dropped back to the launch line.
  */
 export function moveBall(ball: Ball, dt: number, grid: Grid, hooks: MoveHooks): void {
-  const speed = Math.hypot(ball.vx, ball.vy);
+  const speed = length(ball.vx, ball.vy);
   const n = Math.max(1, Math.ceil((speed * dt) / (ball.r * 0.8)));
   const sdt = dt / n;
   for (let i = 0; i < n; i++) {
@@ -234,8 +235,8 @@ export function traceAim(
     id: -1,
     x,
     y,
-    vx: Math.cos(angle) * speed,
-    vy: -Math.sin(angle) * speed,
+    vx: dcos(angle) * speed,
+    vy: -dsin(angle) * speed,
     r,
     element: 'none',
     temp: true,

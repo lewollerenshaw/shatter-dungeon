@@ -2,6 +2,7 @@ import './style.css';
 import { AimInput } from './input';
 import { AD_PLACEMENTS, type Platform } from './platform/platform';
 import { SIMULATED_AD_MS, SimulatedPlatform } from './platform/simulated';
+import { HttpTowerApi, type Board, type TowerApi } from './net/tower';
 import { loadSave, writeSave } from './save';
 import { addEnergy, spendEnergy } from './sim/energy';
 import { buyUpgrade, freePoints, learnTalent, levelInfo, resetTalents, shopHasOffer, type ShopId } from './sim/meta';
@@ -19,6 +20,16 @@ import {
   runMeta,
   settleRun,
 } from './sim/store';
+import {
+  SIM_VERSION,
+  TOWER_META,
+  cleanName,
+  compareScores,
+  simMatchesReference,
+  towerSeed,
+  towerWeek,
+  weekEndsAt,
+} from './sim/tower';
 import { Run } from './sim/run';
 import { H, REVIVE_GEM_COST, W, type Phase } from './sim/types';
 import { Sfx } from './view/audio';
@@ -27,12 +38,14 @@ import { showShop, showTalents } from './view/hub';
 import { Renderer } from './view/renderer';
 import { Screens } from './view/screens';
 import { energyText, showEnergy, showOrbs, showPass, showStore } from './view/store';
+import { formatLeft, showTower, showTowerResults } from './view/tower';
 
 const stage = document.getElementById('stage') as HTMLDivElement;
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ui = document.getElementById('ui') as HTMLDivElement;
 
 const platform: Platform = new SimulatedPlatform();
+const towerApi: TowerApi = new HttpTowerApi();
 const save = loadSave();
 const sfx = new Sfx();
 sfx.muted = save.settings.muted;
@@ -44,6 +57,8 @@ let run: Run | null = null;
 let runToken = 0;
 let lastPhase: Phase | null = null;
 let effectiveSpeed = 1;
+/** The tower week the current run belongs to, or null for a normal run. */
+let towerOfRun: number | null = null;
 
 const SPEEDS = [1, 2, 4];
 
@@ -110,9 +125,11 @@ function showTitle(): void {
       chests: heldChests(save),
       passRewards: claimableCount(save.pass),
       energy: energyText(save, now()),
+      towerLeft: formatLeft(weekEndsAt(towerWeek(now())) - now()),
     },
     {
       play: startRun,
+      tower: openTower,
       forge: () => openShop('forge'),
       tavern: () => openShop('tavern'),
       talents: openTalents,
@@ -214,7 +231,8 @@ function openPass(): void {
   });
 }
 
-function openEnergy(): void {
+/** Shown when a run cannot start for lack of energy. `then` starts it once there is some. */
+function openEnergy(then: () => void): void {
   showEnergy(screens, {
     wallet: save,
     now,
@@ -230,9 +248,134 @@ function openEnergy(): void {
       writeSave(save);
       return true;
     },
-    ready: startRun,
+    ready: then,
     back: showTitle,
   });
+}
+
+// --------------------------------------------------------------- weekly tower
+
+/** Forget last week's best once a new tower week begins. */
+function syncTower(): void {
+  const week = towerWeek(now());
+  const t = save.tower;
+  if (t.week === week) return;
+  t.week = week;
+  t.best = null;
+  t.pending = null;
+  writeSave(save);
+}
+
+/**
+ * Send the unsent best run, if there is one. Resolves to a line for the
+ * player, or '' if there was nothing to send. The run stays queued when the
+ * server cannot be reached.
+ */
+async function flushTower(): Promise<string> {
+  syncTower();
+  const t = save.tower;
+  const pending = t.pending;
+  if (!pending) return '';
+  // The server replays the run. If this browser's arithmetic differs from the
+  // reference, the replay would not match, so do not send it.
+  if (!simMatchesReference()) {
+    t.pending = null;
+    writeSave(save);
+    return 'This browser plays the tower differently from the server, so its scores cannot be posted.';
+  }
+  try {
+    const res = await towerApi.submit({ week: pending.week, playerId: t.playerId, name: t.name, simVersion: SIM_VERSION, log: pending.log });
+    if (res.ok) {
+      if (t.pending === pending) t.pending = null;
+      writeSave(save);
+      return `Rank ${res.rank} of ${res.total} this week`;
+    }
+    if (res.retry) return 'The leaderboard is busy. Your run is saved and will be sent later.';
+    if (t.pending === pending) t.pending = null;
+    writeSave(save);
+    return `Not counted: ${res.message}`;
+  } catch {
+    return 'Leaderboard unreachable. Your run is saved and will be sent later.';
+  }
+}
+
+function openTower(): void {
+  syncTower();
+  const t = save.tower;
+  showTower(screens, {
+    week: t.week,
+    leftMs: weekEndsAt(t.week) - now(),
+    name: t.name,
+    best: t.best,
+    board: async (): Promise<Board> => {
+      await flushTower();
+      return towerApi.board(t.week, t.playerId);
+    },
+    rename: (raw) => {
+      const name = cleanName(raw);
+      if (!name) return null;
+      t.name = name;
+      writeSave(save);
+      return name;
+    },
+    climb: startTower,
+    back: showTitle,
+  });
+}
+
+function startTower(): void {
+  if (!spendEnergy(save.energy, now())) {
+    openEnergy(startTower);
+    return;
+  }
+  syncTower();
+  runToken++;
+  fx.reset();
+  renderer.reset();
+  screens.close();
+  towerOfRun = save.tower.week;
+  run = new Run(towerSeed(towerOfRun), TOWER_META, { tower: true });
+  lastPhase = null;
+  save.runs++;
+  writeSave(save);
+}
+
+function endTowerRun(r: Run): void {
+  r.end();
+  syncTower();
+  const t = save.tower;
+  const score = { floor: r.s.floor, kills: r.s.stats.kills };
+  const out = settleRun(save, { coins: 0, gems: 0, floor: r.s.floor, bossKills: r.s.stats.bossKills, chests: 0 }, now());
+  const sameWeek = towerOfRun === t.week;
+  const newBest = sameWeek && (!t.best || compareScores(score, t.best) > 0);
+  if (newBest) {
+    t.best = score;
+    t.pending = { week: t.week, log: r.log.slice() };
+  }
+  writeSave(save);
+  runToken++;
+  const setStatus = showTowerResults(
+    screens,
+    {
+      floor: score.floor,
+      kills: score.kills,
+      turns: r.s.stats.turns,
+      xp: out.xp,
+      level: out.level,
+      levelsGained: out.levelsGained,
+      best: t.best,
+      newBest,
+    },
+    { again: startTower, board: openTower, title: showTitle },
+  );
+  if (!sameWeek) {
+    setStatus('That tower week ended while you were climbing.');
+  } else if (newBest) {
+    setStatus('Sending your run to the leaderboard…');
+    void flushTower().then(setStatus);
+  } else {
+    setStatus('Not a new best, so the leaderboard is unchanged.');
+  }
 }
 
 function openShop(shop: ShopId): void {
@@ -266,9 +409,10 @@ function openTalents(): void {
 function startRun(): void {
   // Every descent costs one energy.
   if (!spendEnergy(save.energy, now())) {
-    openEnergy();
+    openEnergy(startRun);
     return;
   }
+  towerOfRun = null;
   runToken++;
   fx.reset();
   renderer.reset();
@@ -292,13 +436,15 @@ function showPerks(): void {
     () => {
       if (r.rerollPerks()) showPerks();
     },
+    r.s.tower,
   );
 }
 
 function showDeath(): void {
   const r = run;
   if (!r || r.s.phase !== 'dead') return;
-  if (r.s.revived) {
+  // One revive per run, and none at all in the tower.
+  if (r.s.revived || r.s.tower) {
     endRun();
     return;
   }
@@ -329,6 +475,10 @@ function showDeath(): void {
 function endRun(): void {
   const r = run;
   if (!r) return;
+  if (r.s.tower) {
+    endTowerRun(r);
+    return;
+  }
   r.end();
   const pay = r.payout();
   const newBest = r.s.floor > save.bestFloor;

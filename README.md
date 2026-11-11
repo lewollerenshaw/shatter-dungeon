@@ -2,7 +2,7 @@
 
 A bouncy-orb roguelite brick-breaker. Aim from the bottom, fire a stream of elemental orbs into descending monster blocks, pick a perk after every floor, and beat a boss every 10 floors to bank your loot.
 
-Built so far: the core run loop (milestone 1), permanent progression between runs (milestone 2: forge, tavern, talent tree) and the simulated store (milestone 3: chests and orb merging, energy, season pass, gem packs). The endless tower, leaderboards and real billing are not built yet.
+Built so far: the core run loop (milestone 1), permanent progression between runs (milestone 2: forge, tavern, talent tree) the simulated store (milestone 3: chests and orb merging, energy, season pass, gem packs) and the Weekly Tower with a leaderboard server (milestone 4). Real billing and the app-store wrap are not built yet.
 
 ## Run it
 
@@ -10,6 +10,7 @@ Built so far: the core run loop (milestone 1), permanent progression between run
 npm install
 npm run dev        # http://localhost:5183
 npm run dev:lan    # same, reachable from a phone on your network
+npm run server     # leaderboard server on http://localhost:8787 (only the Weekly Tower needs it)
 ```
 
 | Command | What it does |
@@ -21,6 +22,8 @@ npm run dev:lan    # same, reachable from a phone on your network
 | `npm run sim -- 100 9` | 100 runs, 9 candidate angles per turn (a sharper bot) |
 | `npm run sim -- 100 5 0.5` | The same bot on a profile half way to fully upgraded (0 to 1) |
 | `npm run career` | The bot plays 80 runs on one profile, spending coins and talent points as it goes |
+| `npm run server` | Leaderboard server; scores are kept in `server/data/scores.json` |
+| `npm run seed:tower` | Bots play this week's tower and post their runs to the local server |
 
 ## Layout
 
@@ -35,9 +38,14 @@ src/sim/        Pure, deterministic game simulation. No DOM.
   energy.ts       Energy that regenerates over time.
   pass.ts         Season pass tiers and rewards.
   store.ts        The player's wallet and everything that pays into or out of it.
+  dmath.ts        sin, cos and powers that give the same bits on every JavaScript engine.
+  replay.ts       Re-runs a recorded run from its seed and input log.
+  tower.ts        Weekly Tower rules: the week's seed, the fixed loadout, scoring.
   elements.ts, affixes.ts, boss.ts
 src/view/       Canvas renderer, effects, synthesised audio, HUD, DOM screens (hub.ts: forge, tavern, talents; store.ts: store, orbs, pass, energy).
 src/platform/   The one interface for purchases and ads, with a simulated implementation.
+src/net/        Client for the leaderboard server.
+server/         Leaderboard server: api.ts (plain request handlers), store.ts, main.ts (node:http).
 src/main.ts     Wires it together.
 scripts/        Balance bot (sim.ts), career simulation (career.ts), shared bot logic (bot.ts).
 tests/          Simulation tests.
@@ -64,6 +72,19 @@ A run copies the profile when it starts (`new Run(seed, meta)`), so the simulati
 - **Products.** A one-time starter pack, three gem packs and the premium pass, listed in `PRODUCTS` in `src/sim/store.ts`.
 
 None of this logic reads the clock or the platform itself: the time is passed in, and a purchase is granted only after `Platform.purchase` resolves.
+
+## Weekly Tower and leaderboard
+
+Each week (Monday 00:00 UTC) has one tower seed. Every player climbs it with the same fixed loadout (`TOWER_META`, a half-upgraded profile) and one life, so the result depends on play alone. A run costs 1 energy and earns XP but no coins or chests. The best floor of the week counts, with blocks shattered as the tie-break.
+
+Scores are not trusted from the client. A run records its inputs (`run.log`), the game posts that log, and the server replays it with the same simulation code to work out the floor itself (`server/api.ts`, `src/sim/replay.ts`). For that to work the simulation must give identical results everywhere, which is why it uses `dmath.ts` instead of `Math.sin`, `Math.cos` and `Math.pow`.
+
+- **`SIM_VERSION`** (`src/sim/tower.ts`) must be bumped whenever a change alters how a run plays out. A test replays a recorded reference run and fails when the rules drift; the game also checks that reference before posting, so a browser that computes differently does not send scores that would be rejected.
+- **Identity** is a random id kept in the save plus a display name. There are no accounts, so clearing the browser's storage starts a new leaderboard identity.
+- **Offline**, the tower still plays. A new best is kept in the save and sent the next time the server answers.
+- **Limits**: 12 submissions a minute per address, 512 KB per request, replays capped at 1.2 million steps. Names are stripped to letters, digits and a few symbols; there is no profanity filter.
+
+The server has no dependencies beyond Node. `server/api.ts` is plain request-in, response-out functions over a `ScoreStore` interface, so it can be moved behind a serverless function or a database without touching the rules. In development the Vite dev server proxies `/api` to it; a deployed build sets `VITE_API_URL` to the server's address. It has only been run locally.
 
 ## Tuning
 

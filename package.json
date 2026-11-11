@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "sim": "tsx scripts/sim.ts",
-    "career": "tsx scripts/career.ts"
+    "career": "tsx scripts/career.ts",
+    "server": "tsx server/main.ts",
+    "seed:tower": "tsx scripts/seed-tower.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

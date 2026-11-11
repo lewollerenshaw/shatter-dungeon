@@ -199,6 +199,8 @@ function rarityWeight(r: Rarity, floor: number, reason: PerkReason): number {
  */
 export function rollPerks(s: RunState, reason: PerkReason, count = 3, exclude: string[] = []): string[] {
   let pool = PERKS.filter((p) => (s.perks[p.id] ?? 0) < (p.max ?? 99) && (!p.requires || p.requires(s)));
+  // Coins are not kept in the tower, so a coin perk would be a dead card.
+  if (s.tower) pool = pool.filter((p) => p.id !== 'gold_rush');
   if (reason === 'starter') pool = pool.filter((p) => ORB_PERKS.includes(p.id));
   if (exclude.length > 0) {
     const rest = pool.filter((p) => !exclude.includes(p.id));

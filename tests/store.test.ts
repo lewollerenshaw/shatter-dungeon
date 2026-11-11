@@ -329,7 +329,7 @@ describe('save file with the store', () => {
   it('gives an older save a fresh collection, full energy and a new pass', () => {
     const v2 = { v: 2, bestFloor: 20, coins: 5000, gems: 40, runs: 30, xp: 900, upgrades: { f_damage: 6 }, talents: { honed: 3 }, settings: { muted: false, speed: 4 } };
     const s = parseSave(JSON.stringify(v2), T0);
-    expect(s).toMatchObject({ v: 3, coins: 5000, gems: 40, xp: 900, upgrades: { f_damage: 6 }, talents: { honed: 3 } });
+    expect(s).toMatchObject({ v: 4, coins: 5000, gems: 40, xp: 900, upgrades: { f_damage: 6 }, talents: { honed: 3 } });
     expect(s.inv).toEqual(newInventory());
     expect(s.chests).toEqual({ wood: 0, silver: 0, gold: 0 });
     expect(energyAt(s.energy, T0).n).toBe(ENERGY_MAX);
@@ -338,7 +338,7 @@ describe('save file with the store', () => {
   });
 
   it('round-trips a played profile', () => {
-    const w = { v: 3 as const, bestFloor: 9, runs: 4, settings: { muted: true, speed: 2 }, ...newWallet(T0, 4242) };
+    const w = { v: 4 as const, bestFloor: 9, runs: 4, settings: { muted: true, speed: 2 }, tower: parseSave(null, T0).tower, ...newWallet(T0, 4242) };
     grantProduct(w, 'starter_pack');
     openChest(w, 'gold');
     mergeAll(w.inv);

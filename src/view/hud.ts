@@ -38,11 +38,12 @@ export function drawHud(ctx: CanvasRenderingContext2D, run: Run, fx: Fx, time: n
   ctx.textAlign = 'left';
   ctx.font = `800 20px ${FONT}`;
   ctx.fillStyle = '#e9ecff';
-  ctx.fillText(`FLOOR ${s.floor}`, 16, 24);
+  ctx.fillText(`${s.tower ? 'TOWER' : 'FLOOR'} ${s.floor}`, 16, 24);
   ctx.textAlign = 'right';
   ctx.font = `700 15px ${FONT}`;
   ctx.fillStyle = '#ffd45e';
-  ctx.fillText(`◆ ${fmt(s.loot.coins + s.loot.banked)}`, W - 62, 24);
+  // Coins are not kept in the tower, so they are not shown there.
+  if (!s.tower) ctx.fillText(`◆ ${fmt(s.loot.coins + s.loot.banked)}`, W - 62, 24);
 
   // Hero health.
   const hpFrac = s.hero.hp / s.hero.maxHp;

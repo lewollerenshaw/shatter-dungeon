@@ -316,7 +316,8 @@ export class Fx {
           sfx.boss();
           break;
         case 'bank':
-          this.showBanner('LOOT BANKED', `${fmt(e.coins)} coins  +${e.gems} gems`, '#ffd45e', 1.8);
+          if (run.s.tower) this.showBanner('BOSS DOWN', 'The tower goes on', '#ffd45e', 1.8);
+          else this.showBanner('LOOT BANKED', `${fmt(e.coins)} coins  +${e.gems} gems`, '#ffd45e', 1.8);
           break;
         case 'revive':
           this.whiteFlash = 0.9;
