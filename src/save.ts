@@ -29,7 +29,15 @@ export interface SaveData extends Wallet {
 }
 
 /** The key keeps its original name so saves from earlier versions still load. */
-const KEY = 'shatter-dungeon-save-v1';
+export const SAVE_KEY = 'shatter-dungeon-save-v1';
+const KEY = SAVE_KEY;
+
+let mirror: ((key: string, json: string) => void) | null = null;
+
+/** Have every write also go somewhere sturdier than localStorage (the native app sets this). */
+export function setSaveMirror(fn: (key: string, json: string) => void): void {
+  mirror = fn;
+}
 
 function newPlayerId(): string {
   // randomUUID needs a secure context, which a phone on the local network does not have.
@@ -125,9 +133,11 @@ export function loadSave(): SaveData {
 }
 
 export function writeSave(data: SaveData): void {
+  const json = JSON.stringify(data);
   try {
-    localStorage.setItem(KEY, JSON.stringify(data));
+    localStorage.setItem(KEY, json);
   } catch {
     // Private mode or storage full: the game still plays, it just will not persist.
   }
+  mirror?.(KEY, json);
 }

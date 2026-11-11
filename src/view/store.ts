@@ -96,6 +96,8 @@ export interface StoreCtx {
   now(): number;
   price(productId: string): string;
   simulated: boolean;
+  /** Rewarded ads can be shown. */
+  ads: boolean;
   /** Run the purchase through the platform and grant it. Resolves false if it did not go through. */
   buyProduct(productId: string): Promise<boolean>;
   /** Pay for a chest and open it. */
@@ -122,7 +124,9 @@ export function showStore(screens: Screens, ctx: StoreCtx): void {
   const product = (id: string, cls: string, glyph: string): void => {
     const def = PRODUCTS.find((p) => p.id === id);
     if (!def || !productAvailable(w, id)) return;
-    const btn = actionButton(ctx.price(id) || 'Buy', true, 'cash');
+    // No price means the store does not list the product here, so it cannot be bought.
+    const price = ctx.price(id);
+    const btn = actionButton(price || 'Unavailable', price !== '', 'cash');
     btn.onclick = async () => {
       btn.disabled = true;
       btn.textContent = '…';
@@ -153,10 +157,12 @@ export function showStore(screens: Screens, ctx: StoreCtx): void {
     }
 
     list.append(el('h3', 'sec', 'Chests'));
-    const left = adChestsLeft(w, ctx.now());
-    const watch = actionButton('Watch ad', left > 0);
-    watch.onclick = async () => reveal(await ctx.adChest());
-    list.append(row('chest c-wood', '▣', 'Free Chest', '', [`A Wooden Chest for watching an ad`, `${left} of ${AD_CHESTS_PER_DAY} left today`], watch));
+    if (ctx.ads) {
+      const left = adChestsLeft(w, ctx.now());
+      const watch = actionButton('Watch ad', left > 0);
+      watch.onclick = async () => reveal(await ctx.adChest());
+      list.append(row('chest c-wood', '▣', 'Free Chest', '', [`A Wooden Chest for watching an ad`, `${left} of ${AD_CHESTS_PER_DAY} left today`], watch));
+    }
     for (const id of CHEST_IDS) {
       const def = CHESTS[id];
       const label = def.price.gems ? `${GEM} ${fmt(def.price.gems)}` : `${COIN} ${fmt(def.price.coins ?? 0)}`;
@@ -287,8 +293,9 @@ export function showPass(screens: Screens, ctx: PassCtx): void {
     level.append(line, bar);
 
     const actions = el('div', 'passacts');
-    if (!p.premium) {
-      const unlock = el('button', 'btn primary small', `Unlock premium  ·  ${ctx.price('battle_pass')}`);
+    const passPrice = ctx.price('battle_pass');
+    if (!p.premium && passPrice) {
+      const unlock = el('button', 'btn primary small', `Unlock premium  ·  ${passPrice}`);
       unlock.onclick = async () => {
         unlock.disabled = true;
         await ctx.buyPremium();
@@ -338,6 +345,8 @@ export interface EnergyCtx {
   wallet: Wallet;
   now(): number;
   simulated: boolean;
+  /** Rewarded ads can be shown. */
+  ads: boolean;
   /** Spend gems on a full refill. */
   refill(): boolean;
   /** Show a rewarded ad for one point. */
@@ -376,8 +385,8 @@ export function showEnergy(screens: Screens, ctx: EnergyCtx): void {
     live,
     refill,
     el('p', 'have', `You have ${fmt(w.gems)} gems`),
-    ad,
-    back,
   );
+  if (ctx.ads) d.append(ad);
+  d.append(back);
   if (ctx.simulated) d.append(el('p', 'fine', SIM_NOTE));
 }

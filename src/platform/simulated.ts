@@ -16,6 +16,11 @@ const PRICES: Record<string, string> = {
 export class SimulatedPlatform implements Platform {
   readonly name = 'simulated';
   readonly simulated = true;
+  readonly adsAvailable = true;
+
+  ready(): Promise<void> {
+    return Promise.resolve();
+  }
 
   price(productId: string): string {
     return PRICES[productId] ?? '';

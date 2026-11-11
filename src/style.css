@@ -21,7 +21,8 @@ html,
 body {
   margin: 0;
   height: 100%;
-  background: var(--bg);
+  /* Matches the canvas backdrop, so the margins beside the stage on tall phones blend in. */
+  background: linear-gradient(#0b0a1f, #07071a 55%, #05050f) fixed #05050f;
   color: var(--ink);
   font-family: var(--font);
   overflow: hidden;

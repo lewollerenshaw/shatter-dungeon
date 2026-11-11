@@ -245,7 +245,7 @@ export class Screens {
   }
 
   showDeath(
-    info: { floor: number; canRevive: boolean; gems: number; simulated: boolean },
+    info: { floor: number; canRevive: boolean; gems: number; simulated: boolean; ads: boolean },
     on: { gems(): void; ad(): void; end(): void },
   ): void {
     const d = this.open('death');
@@ -260,13 +260,19 @@ export class Screens {
         el('p', 'note', 'Once per run: clear the board and get back up at half health.'),
         g,
         el('p', 'have', `You have ${fmt(info.gems)} gems`),
-        a,
       );
+      if (info.ads) d.append(a);
     }
     const e = el('button', 'btn ghost', 'End run');
     e.onclick = on.end;
     d.append(e);
     if (info.canRevive && info.simulated) d.append(el('p', 'fine', 'Ads and purchases are simulated in this build. No money is spent.'));
+  }
+
+  /** A plain holding screen while something outside the game (a real ad) loads. */
+  showWait(text: string): void {
+    const d = this.open('ad');
+    d.append(el('p', 'sub', text));
   }
 
   showAd(ms: number): void {

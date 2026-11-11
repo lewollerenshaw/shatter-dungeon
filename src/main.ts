@@ -1,9 +1,10 @@
 import './style.css';
 import { AimInput } from './input';
-import { AD_PLACEMENTS, type Platform } from './platform/platform';
-import { SIMULATED_AD_MS, SimulatedPlatform } from './platform/simulated';
 import { HttpTowerApi, type Board, type TowerApi } from './net/tower';
-import { loadSave, writeSave } from './save';
+import { createPlatform } from './platform/index';
+import { AD_PLACEMENTS, type Platform } from './platform/platform';
+import { SIMULATED_AD_MS } from './platform/simulated';
+import { SAVE_KEY, loadSave, setSaveMirror, writeSave } from './save';
 import { addEnergy, spendEnergy } from './sim/energy';
 import { buyUpgrade, freePoints, learnTalent, levelInfo, resetTalents, shopHasOffer, type ShopId } from './sim/meta';
 import { anyMergeable, mergeAll, mergeOnce } from './sim/orbs';
@@ -36,6 +37,7 @@ import { Sfx } from './view/audio';
 import { Fx } from './view/fx';
 import { showShop, showTalents } from './view/hub';
 import { Renderer } from './view/renderer';
+import { mirrorToDevice, restoreFromDevice } from './storage';
 import { Screens } from './view/screens';
 import { energyText, showEnergy, showOrbs, showPass, showStore } from './view/store';
 import { formatLeft, showTower, showTowerResults } from './view/tower';
@@ -44,8 +46,12 @@ const stage = document.getElementById('stage') as HTMLDivElement;
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ui = document.getElementById('ui') as HTMLDivElement;
 
-const platform: Platform = new SimulatedPlatform();
+const platform: Platform = await createPlatform();
+// Prices and ads arrive in the background; the screens that need them ask when they open.
+void platform.ready();
 const towerApi: TowerApi = new HttpTowerApi();
+await restoreFromDevice(SAVE_KEY);
+setSaveMirror(mirrorToDevice);
 const save = loadSave();
 const sfx = new Sfx();
 sfx.muted = save.settings.muted;
@@ -84,14 +90,25 @@ const aim = new AimInput(
 
 window.addEventListener('pointerdown', () => sfx.unlock(), { capture: true });
 
+/** Measures the notch / status bar inset, which CSS knows and JavaScript otherwise does not. */
+const safeProbe = document.createElement('div');
+safeProbe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none';
+document.body.append(safeProbe);
+
 function layout(): void {
   const vw = window.innerWidth;
-  const vh = window.innerHeight;
+  // Keep the whole stage below the notch. The bottom inset is left alone: the
+  // home indicator sits clear of the corner buttons.
+  const top = safeProbe.offsetHeight;
+  const vh = window.innerHeight - top;
   const s = Math.min(vw / W, vh / H);
-  stage.style.transform = `translate(${((vw - W * s) / 2).toFixed(1)}px, ${((vh - H * s) / 2).toFixed(1)}px) scale(${s.toFixed(4)})`;
+  stage.style.transform = `translate(${((vw - W * s) / 2).toFixed(1)}px, ${(top + (vh - H * s) / 2).toFixed(1)}px) scale(${s.toFixed(4)})`;
   renderer.resize(s);
 }
 window.addEventListener('resize', layout);
+// The inset is often still zero when the page first loads inside the app, and
+// arrives without a resize event.
+new ResizeObserver(layout).observe(safeProbe);
 layout();
 
 /** Run `fn` after `ms`, unless the run has changed in the meantime. */
@@ -142,7 +159,8 @@ function showTitle(): void {
 
 /** Play a rewarded ad over whatever is on screen. Resolves true if the reward was earned. */
 function watchAd(placement: string): Promise<boolean> {
-  screens.showAd(SIMULATED_AD_MS);
+  if (platform.simulated) screens.showAd(SIMULATED_AD_MS);
+  else screens.showWait('Loading ad…');
   return platform.showRewardedAd(placement);
 }
 
@@ -161,6 +179,7 @@ function openStore(): void {
     now,
     price: (id) => platform.price(id),
     simulated: platform.simulated,
+    ads: platform.adsAvailable,
     buyProduct: purchase,
     buyChest: (id) => {
       if (!buyChest(save, id)) return null;
@@ -237,6 +256,7 @@ function openEnergy(then: () => void): void {
     wallet: save,
     now,
     simulated: platform.simulated,
+    ads: platform.adsAvailable,
     refill: () => {
       if (!refillEnergy(save, now())) return false;
       writeSave(save);
@@ -449,7 +469,7 @@ function showDeath(): void {
     return;
   }
   screens.showDeath(
-    { floor: r.s.floor, canRevive: true, gems: save.gems, simulated: platform.simulated },
+    { floor: r.s.floor, canRevive: true, gems: save.gems, simulated: platform.simulated, ads: platform.adsAvailable },
     {
       gems: () => {
         if (save.gems < REVIVE_GEM_COST) return;
@@ -460,8 +480,7 @@ function showDeath(): void {
       },
       ad: async () => {
         const token = runToken;
-        screens.showAd(SIMULATED_AD_MS);
-        const earned = await platform.showRewardedAd(AD_PLACEMENTS.revive);
+        const earned = await watchAd(AD_PLACEMENTS.revive);
         if (token !== runToken) return;
         screens.close();
         if (earned) r.revive();

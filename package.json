@@ -13,13 +13,25 @@
     "sim": "tsx scripts/sim.ts",
     "career": "tsx scripts/career.ts",
     "server": "tsx server/main.ts",
-    "seed:tower": "tsx scripts/seed-tower.ts"
+    "seed:tower": "tsx scripts/seed-tower.ts",
+    "cap:sync": "npm run build && cap sync",
+    "ios": "npm run cap:sync && cap open ios",
+    "android": "npm run cap:sync && cap open android"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.0",
     "@types/node": "^26.6.6",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.7",
     "vitest": "^5.1.0"
+  },
+  "dependencies": {
+    "@capacitor-community/admob": "^8.3.0",
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/ios": "^8.6.0",
+    "@capacitor/preferences": "^8.0.1",
+    "@revenuecat/purchases-capacitor": "^14.1.0"
   }
 }

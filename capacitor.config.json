@@ -1,0 +1,7 @@
+{
+  "appId": "com.shatterdungeon.app",
+  "appName": "Shatter Dungeon",
+  "webDir": "dist",
+  "backgroundColor": "#05050f",
+  "ios": { "contentInset": "never" }
+}
