@@ -38,6 +38,7 @@ export interface Result {
   orbs: number;
   coins: number;
   xp: number;
+  bossKills: number;
 }
 
 export function playRun(seed: number, meta: MetaState, angles: number): Result {
@@ -89,5 +90,6 @@ export function playRun(seed: number, meta: MetaState, angles: number): Result {
     orbs: run.s.orbs.length,
     coins: run.payout().coins,
     xp: xpForRun(run.s.floor, run.s.stats.bossKills),
+    bossKills: run.s.stats.bossKills,
   };
 }

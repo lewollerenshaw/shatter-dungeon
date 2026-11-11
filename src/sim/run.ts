@@ -90,7 +90,7 @@ function freshState(seed: number, meta: MetaState): RunState {
     turnTime: 0,
     resolveTimer: 0,
     revived: false,
-    meta: { upgrades: { ...meta.upgrades }, talents: { ...meta.talents } },
+    meta: { upgrades: { ...meta.upgrades }, talents: { ...meta.talents }, orbs: { ...meta.orbs } },
     rerolls: m.rerolls,
     wards: 0,
     stats: { damage: 0, kills: 0, crits: 0, turns: 0, maxCombo: 0, maxHit: 0, bossKills: 0 },
@@ -534,7 +534,7 @@ export class Run {
       return true;
     }
 
-    let dmg = BASE_DMG * st.dmg * (1 + st.comboDmg * Math.min(s.combo, 100));
+    let dmg = BASE_DMG * st.dmg * st.orbPower[ball.element] * (1 + st.comboDmg * Math.min(s.combo, 100));
     if (ball.temp) dmg *= 0.5;
     else if (ball.bounces <= st.openerHits) dmg *= 1 + st.openerBonus;
     if (ball.element !== 'none') dmg *= st.elementalDmg;

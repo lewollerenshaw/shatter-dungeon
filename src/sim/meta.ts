@@ -3,12 +3,15 @@
  * talent tree fed by hero levels. Pure data and arithmetic, like the rest of
  * the simulation, so the balance bot can play with any profile.
  */
+import { MAX_ORB_LEVEL, ORB_TYPES, orbPower } from './orbs';
 import type { Element } from './types';
 
 /** The part of a profile that changes how a run plays. Plain data: a run keeps its own copy. */
 export interface MetaState {
   upgrades: Record<string, number>;
   talents: Record<string, number>;
+  /** Level of the best orb held of each element (see orbs.ts). Missing means level 1. */
+  orbs?: Partial<Record<Element, number>>;
 }
 
 /** What the purchase helpers need from a save file. */
@@ -232,12 +235,16 @@ export interface MetaBonus {
   /** Breaches ignored per floor. */
   wards: number;
   perkChoices: number;
+  /** Hit damage multiplier for orbs of each element, from the orb collection. */
+  orbPower: Record<Element, number>;
 }
 
 export function metaBonus(m: MetaState): MetaBonus {
   const u = (id: string): number => m.upgrades[id] ?? 0;
   const t = (id: string): number => m.talents[id] ?? 0;
   const attune = 1 + 0.06 * t('attunement');
+  const power = {} as Record<Element, number>;
+  for (const el of ORB_TYPES) power[el] = orbPower(m.orbs?.[el] ?? 1);
   return {
     dmg: (1 + 0.03 * u('f_damage')) * (1 + 0.05 * t('honed')),
     critChance: 0.01 * u('f_crit') + 0.03 * t('instinct'),
@@ -262,6 +269,7 @@ export function metaBonus(m: MetaState): MetaBonus {
     rerolls: t('reroll'),
     wards: t('ward'),
     perkChoices: 3 + t('foresight'),
+    orbPower: power,
   };
 }
 
@@ -288,13 +296,16 @@ export function sanitizeMeta(upgrades: unknown, talents: unknown): MetaState {
 }
 
 /**
- * A profile that is `fraction` of the way to fully upgraded: every upgrade at
- * that share of its cap, and that share of the talent tree filled row by row.
+ * A profile that is `fraction` of the way to fully upgraded: every upgrade and
+ * orb at that share of its cap, and that share of the talent tree filled row by row.
  * Used by the balance bot and tests.
  */
 export function metaAt(fraction: number): MetaState {
   const f = Math.min(1, Math.max(0, fraction));
-  const m: MetaState = { upgrades: {}, talents: {} };
+  const orbs: Partial<Record<Element, number>> = {};
+  const orbLevel = 1 + Math.round((MAX_ORB_LEVEL - 1) * f);
+  if (orbLevel > 1) for (const el of ORB_TYPES) orbs[el] = orbLevel;
+  const m: MetaState = { upgrades: {}, talents: {}, orbs };
   for (const u of UPGRADES) {
     const l = Math.round(u.max * f);
     if (l > 0) m.upgrades[u.id] = l;

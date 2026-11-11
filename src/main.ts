@@ -3,16 +3,22 @@ import { AimInput } from './input';
 import { AD_PLACEMENTS, type Platform } from './platform/platform';
 import { SIMULATED_AD_MS, SimulatedPlatform } from './platform/simulated';
 import { loadSave, writeSave } from './save';
+import { addEnergy, spendEnergy } from './sim/energy';
+import { buyUpgrade, freePoints, learnTalent, levelInfo, resetTalents, shopHasOffer, type ShopId } from './sim/meta';
+import { anyMergeable, mergeAll, mergeOnce } from './sim/orbs';
+import { claimableCount, syncPass } from './sim/pass';
 import {
-  buyUpgrade,
-  freePoints,
-  learnTalent,
-  levelInfo,
-  resetTalents,
-  shopHasOffer,
-  xpForRun,
-  type ShopId,
-} from './sim/meta';
+  buyChest,
+  claimAdChest,
+  claimAllPass,
+  claimPassReward,
+  grantProduct,
+  heldChests,
+  openChest,
+  refillEnergy,
+  runMeta,
+  settleRun,
+} from './sim/store';
 import { Run } from './sim/run';
 import { H, REVIVE_GEM_COST, W, type Phase } from './sim/types';
 import { Sfx } from './view/audio';
@@ -20,6 +26,7 @@ import { Fx } from './view/fx';
 import { showShop, showTalents } from './view/hub';
 import { Renderer } from './view/renderer';
 import { Screens } from './view/screens';
+import { energyText, showEnergy, showOrbs, showPass, showStore } from './view/store';
 
 const stage = document.getElementById('stage') as HTMLDivElement;
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -80,12 +87,15 @@ function later(ms: number, fn: () => void): void {
   }, ms);
 }
 
+const now = (): number => Date.now();
+
 function showTitle(): void {
   runToken++;
   run = null;
   lastPhase = null;
   fx.reset();
   renderer.reset();
+  if (syncPass(save.pass, now())) writeSave(save);
   screens.showTitle(
     {
       bestFloor: save.bestFloor,
@@ -96,9 +106,133 @@ function showTitle(): void {
       points: freePoints(save),
       forgeOffer: shopHasOffer(save, 'forge'),
       tavernOffer: shopHasOffer(save, 'tavern'),
+      orbsOffer: anyMergeable(save.inv),
+      chests: heldChests(save),
+      passRewards: claimableCount(save.pass),
+      energy: energyText(save, now()),
     },
-    { play: startRun, forge: () => openShop('forge'), tavern: () => openShop('tavern'), talents: openTalents },
+    {
+      play: startRun,
+      forge: () => openShop('forge'),
+      tavern: () => openShop('tavern'),
+      talents: openTalents,
+      orbs: openOrbs,
+      store: openStore,
+      pass: openPass,
+    },
   );
+}
+
+/** Play a rewarded ad over whatever is on screen. Resolves true if the reward was earned. */
+function watchAd(placement: string): Promise<boolean> {
+  screens.showAd(SIMULATED_AD_MS);
+  return platform.showRewardedAd(placement);
+}
+
+/** Buy a store product through the platform and hand it over. */
+async function purchase(productId: string): Promise<boolean> {
+  const result = await platform.purchase(productId);
+  if (!result.ok || !grantProduct(save, productId)) return false;
+  writeSave(save);
+  sfx.perk();
+  return true;
+}
+
+function openStore(): void {
+  showStore(screens, {
+    wallet: save,
+    now,
+    price: (id) => platform.price(id),
+    simulated: platform.simulated,
+    buyProduct: purchase,
+    buyChest: (id) => {
+      if (!buyChest(save, id)) return null;
+      const loot = openChest(save, id);
+      writeSave(save);
+      sfx.floorClear();
+      return loot;
+    },
+    openChest: (id) => {
+      const loot = openChest(save, id);
+      if (loot) {
+        writeSave(save);
+        sfx.floorClear();
+      }
+      return loot;
+    },
+    adChest: async () => {
+      if (!(await watchAd(AD_PLACEMENTS.chest)) || !claimAdChest(save, now())) return null;
+      const loot = openChest(save, 'wood');
+      writeSave(save);
+      sfx.floorClear();
+      return loot;
+    },
+    back: showTitle,
+  });
+}
+
+function openOrbs(): void {
+  const merged = (n: number): number => {
+    if (n > 0) {
+      writeSave(save);
+      sfx.perk();
+    }
+    return n;
+  };
+  showOrbs(screens, save, {
+    merge: (element) => merged(mergeOnce(save.inv, element)),
+    mergeAll: () => merged(mergeAll(save.inv)),
+    back: showTitle,
+  });
+}
+
+function openPass(): void {
+  if (syncPass(save.pass, now())) writeSave(save);
+  showPass(screens, {
+    wallet: save,
+    now,
+    price: (id) => platform.price(id),
+    simulated: platform.simulated,
+    claim: (track, tier) => {
+      const reward = claimPassReward(save, track, tier);
+      if (reward) {
+        writeSave(save);
+        sfx.perk();
+      }
+      return reward;
+    },
+    claimAll: () => {
+      const rewards = claimAllPass(save);
+      if (rewards.length > 0) {
+        writeSave(save);
+        sfx.perk();
+      }
+      return rewards;
+    },
+    buyPremium: () => purchase('battle_pass'),
+    back: showTitle,
+  });
+}
+
+function openEnergy(): void {
+  showEnergy(screens, {
+    wallet: save,
+    now,
+    simulated: platform.simulated,
+    refill: () => {
+      if (!refillEnergy(save, now())) return false;
+      writeSave(save);
+      return true;
+    },
+    ad: async () => {
+      if (!(await watchAd(AD_PLACEMENTS.energy))) return false;
+      addEnergy(save.energy, now(), 1);
+      writeSave(save);
+      return true;
+    },
+    ready: startRun,
+    back: showTitle,
+  });
 }
 
 function openShop(shop: ShopId): void {
@@ -130,11 +264,16 @@ function openTalents(): void {
 }
 
 function startRun(): void {
+  // Every descent costs one energy.
+  if (!spendEnergy(save.energy, now())) {
+    openEnergy();
+    return;
+  }
   runToken++;
   fx.reset();
   renderer.reset();
   screens.close();
-  run = new Run((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0, save);
+  run = new Run((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0, runMeta(save));
   lastPhase = null;
   save.runs++;
   writeSave(save);
@@ -194,12 +333,11 @@ function endRun(): void {
   const pay = r.payout();
   const newBest = r.s.floor > save.bestFloor;
   save.bestFloor = Math.max(save.bestFloor, r.s.floor);
-  save.coins += pay.coins;
-  save.gems += pay.gems;
-  const xp = xpForRun(r.s.floor, r.s.stats.bossKills);
-  const levelBefore = levelInfo(save.xp).level;
-  save.xp += xp;
-  const level = levelInfo(save.xp).level;
+  const out = settleRun(
+    save,
+    { coins: pay.coins, gems: pay.gems, floor: r.s.floor, bossKills: r.s.stats.bossKills },
+    now(),
+  );
   writeSave(save);
   runToken++;
   screens.showResults(
@@ -215,10 +353,17 @@ function endRun(): void {
       coins: pay.coins,
       gems: pay.gems,
       lost: pay.lost,
-      xp,
-      level,
-      levelsGained: level - levelBefore,
-      canSpend: freePoints(save) > 0 || shopHasOffer(save, 'forge') || shopHasOffer(save, 'tavern'),
+      xp: out.xp,
+      level: out.level,
+      levelsGained: out.levelsGained,
+      chests: out.chests,
+      passTiers: out.passTiersGained,
+      canSpend:
+        freePoints(save) > 0 ||
+        shopHasOffer(save, 'forge') ||
+        shopHasOffer(save, 'tavern') ||
+        heldChests(save) > 0 ||
+        claimableCount(save.pass) > 0,
     },
     startRun,
     showTitle,
@@ -261,6 +406,7 @@ function tick(dt: number): void {
     effective: r ? effectiveSpeed : save.settings.speed,
     canRecall: !!r && r.s.phase === 'firing' && r.s.turnTime > 1.5 && !screens.isOpen,
     muted: save.settings.muted,
+    energy: energyText(save, now()),
   });
 }
 

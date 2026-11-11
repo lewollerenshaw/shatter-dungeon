@@ -105,7 +105,8 @@ describe('hero level and talents', () => {
     const full = metaAt(1);
     for (const u of UPGRADES) expect(full.upgrades[u.id]).toBe(u.max);
     for (const t of TALENTS) expect(full.talents[t.id]).toBe(t.max);
-    expect(metaAt(0)).toEqual({ upgrades: {}, talents: {} });
+    expect(metaAt(0)).toEqual({ upgrades: {}, talents: {}, orbs: {} });
+    expect(full.orbs).toEqual({ none: 7, fire: 7, ice: 7, lightning: 7, poison: 7 });
   });
 });
 
@@ -264,8 +265,8 @@ describe('meta in a run', () => {
 describe('save file', () => {
   it('loads a save from before progression existed', () => {
     const s = parseSave(JSON.stringify({ v: 1, bestFloor: 14, coins: 320, gems: 65, runs: 9, settings: { muted: true, speed: 2 } }));
-    expect(s).toEqual({
-      v: 2,
+    expect(s).toMatchObject({
+      v: 3,
       bestFloor: 14,
       coins: 320,
       gems: 65,

@@ -962,9 +962,266 @@ p {
   color: #c9cdee;
 }
 
+/* ------------------------------------------- energy, store, orbs and pass */
+
+.tile.orbs {
+  --tone: var(--cyan);
+}
+
+.tile.store {
+  --tone: var(--gem);
+}
+
+.tile.pass {
+  --tone: #7dff5a;
+}
+
+.energy {
+  margin-top: -4px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.energy.big {
+  margin: 0 0 8px;
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.meta .slot {
+  justify-self: end;
+}
+
+.pill.purse {
+  display: flex;
+  gap: 10px;
+}
+
+.pill .gem,
+.table .gem b {
+  color: var(--gem);
+}
+
+.sec {
+  flex: none;
+  margin: 8px 2px -2px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: left;
+  color: var(--dim);
+}
+
+.sec:first-child {
+  margin-top: 0;
+}
+
+.list .fine {
+  max-width: none;
+  padding: 0 8px;
+}
+
+.up.offer {
+  border-color: rgba(255, 212, 94, 0.55);
+  background: linear-gradient(135deg, rgba(255, 212, 94, 0.13), rgba(255, 79, 216, 0.07));
+  box-shadow: 0 0 22px rgba(255, 212, 94, 0.16);
+}
+
+.icon-gem .chip {
+  --c: #b98cff;
+}
+
+.chest .chip {
+  --c: #d2a274;
+}
+
+.chest.c-silver .chip {
+  --c: #cfd8ea;
+}
+
+.chest.c-gold .chip {
+  --c: #ffd45e;
+}
+
+.buy.gems {
+  background: var(--gem);
+  box-shadow: 0 0 16px rgba(185, 140, 255, 0.4);
+}
+
+.buy.cash {
+  background: linear-gradient(135deg, var(--cyan), #9d7bff 55%, var(--pink));
+  box-shadow: 0 0 16px rgba(140, 120, 255, 0.4);
+}
+
+.buy.gems:disabled,
+.buy.cash:disabled {
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+}
+
+.meta > .btn.small {
+  flex: none;
+}
+
+.loot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  max-width: 340px;
+  margin: 10px 0 6px;
+}
+
+.drop {
+  width: 74px;
+  padding: 10px 4px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  animation: rise 0.36s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+.drop.rare {
+  border-color: rgba(255, 212, 94, 0.7);
+  box-shadow: 0 0 18px rgba(255, 212, 94, 0.3);
+}
+
+.drop .chip {
+  width: 38px;
+  height: 38px;
+  font-size: 17px;
+}
+
+.drop b {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.drop small {
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.reveal .coins {
+  margin-bottom: 8px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--gold);
+}
+
+.passtop {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.passacts {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.passacts:empty {
+  display: none;
+}
+
+.passacts .btn {
+  flex: 1;
+  max-width: none;
+  padding: 0 10px;
+}
+
+.tier {
+  flex: none;
+  display: grid;
+  grid-template-columns: 26px 1fr 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.tier .num {
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.tier.reached .num {
+  color: var(--ink);
+}
+
+.tier.heads span {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.cell {
+  min-height: 50px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.cell.paid {
+  background: rgba(185, 140, 255, 0.07);
+  border-color: rgba(185, 140, 255, 0.2);
+}
+
+.cell b {
+  font-size: 13.5px;
+  font-weight: 800;
+}
+
+.cell small {
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.cell.locked,
+.cell.claimed {
+  cursor: default;
+}
+
+.cell.locked {
+  opacity: 0.7;
+}
+
+.cell.claimed {
+  opacity: 0.38;
+}
+
+.cell.ready {
+  border-color: var(--gold);
+  box-shadow: 0 0 14px rgba(255, 212, 94, 0.3);
+}
+
+.cell.ready small {
+  color: var(--gold);
+  font-weight: 800;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .screen,
-  .card {
+  .card,
+  .drop {
     animation: none;
   }
 }

@@ -38,8 +38,12 @@ export interface ResultsData {
   level: number;
   /** Levels gained by this run (each is a talent point). */
   levelsGained: number;
-  /** Something in the forge, tavern or talent tree can be bought right now. */
+  /** Something is waiting on the title screen: an affordable upgrade, a talent point, a chest or a pass reward. */
   canSpend: boolean;
+  /** Wooden Chests earned from bosses. */
+  chests: number;
+  /** Season pass tiers unlocked by this run. */
+  passTiers: number;
 }
 
 export interface TitleInfo {
@@ -52,6 +56,14 @@ export interface TitleInfo {
   points: number;
   forgeOffer: boolean;
   tavernOffer: boolean;
+  /** Orbs can be merged. */
+  orbsOffer: boolean;
+  /** Unopened chests. */
+  chests: number;
+  /** Pass rewards waiting to be claimed. */
+  passRewards: number;
+  /** Live energy readout. */
+  energy: string;
 }
 
 export interface HudState {
@@ -62,6 +74,8 @@ export interface HudState {
   effective: number;
   canRecall: boolean;
   muted: boolean;
+  /** Text for any live energy readout on screen. */
+  energy: string;
 }
 
 /** DOM overlays: title, perk choice, death, results, and the in-run buttons. */
@@ -103,6 +117,13 @@ export class Screens {
     this.speedBtn.classList.toggle('hot', s.speed > 1);
     this.speedBtn.classList.toggle('auto', s.effective > s.speed);
     this.recallBtn.hidden = !s.canRecall;
+    const live = this.layer?.querySelector('[data-energy]');
+    if (live && live.textContent !== s.energy) live.textContent = s.energy;
+  }
+
+  /** True while `layer` is still the screen being shown (async flows check before redrawing). */
+  isCurrent(layer: HTMLElement): boolean {
+    return this.layer === layer;
   }
 
   close(): void {
@@ -118,7 +139,10 @@ export class Screens {
     return d;
   }
 
-  showTitle(info: TitleInfo, on: { play(): void; forge(): void; tavern(): void; talents(): void }): void {
+  showTitle(
+    info: TitleInfo,
+    on: { play(): void; forge(): void; tavern(): void; talents(): void; orbs(): void; store(): void; pass(): void },
+  ): void {
     const d = this.open('title');
     const logo = el('h1', 'logo');
     logo.append(el('span', 'l1', 'SHATTER'), el('span', 'l2', 'DUNGEON'));
@@ -131,25 +155,27 @@ export class Screens {
     );
     const play = el('button', 'btn primary', info.runs > 0 ? 'Descend again' : 'Enter the dungeon');
     play.onclick = on.play;
-    const hub = el('div', 'hub');
-    const tile = (cls: string, glyph: string, name: string, sub: string, badge: string, go: () => void): void => {
+    const energy = el('p', 'energy', info.energy);
+    energy.dataset.energy = '';
+    const tile = (row: HTMLElement, cls: string, glyph: string, name: string, sub: string, badge: string, go: () => void): void => {
       const b = el('button', `tile ${cls}`);
       b.append(el('span', 'glyph', glyph), el('b', '', name), el('small', '', sub));
       if (badge) b.append(el('i', 'badge', badge));
       b.onclick = go;
-      hub.append(b);
+      row.append(b);
     };
-    tile('forge', '✦', 'Forge', 'Orb upgrades', info.forgeOffer ? '!' : '', on.forge);
-    tile('tavern', '♥', 'Tavern', 'Hero upgrades', info.tavernOffer ? '!' : '', on.tavern);
-    tile('talents', '✸', 'Talents', 'Skill tree', info.points > 0 ? String(info.points) : '', on.talents);
-    d.append(
-      logo,
-      el('p', 'tag', 'Bounce. Chain. Shatter.'),
-      wallet,
-      play,
-      hub,
-      el('p', 'hint', 'Drag to aim, release to fire. Beat a boss to bank your coins, then spend them here.'),
-    );
+    const upgrades = el('div', 'hub');
+    tile(upgrades, 'forge', '✦', 'Forge', 'Orb upgrades', info.forgeOffer ? '!' : '', on.forge);
+    tile(upgrades, 'tavern', '♥', 'Tavern', 'Hero upgrades', info.tavernOffer ? '!' : '', on.tavern);
+    tile(upgrades, 'talents', '✸', 'Talents', 'Skill tree', info.points > 0 ? String(info.points) : '', on.talents);
+    const shop = el('div', 'hub');
+    tile(shop, 'orbs', '○', 'Orbs', 'Collect, merge', info.orbsOffer ? '!' : '', on.orbs);
+    tile(shop, 'store', '▣', 'Store', 'Chests, gems', info.chests > 0 ? String(info.chests) : '', on.store);
+    tile(shop, 'pass', '★', 'Pass', 'Season rewards', info.passRewards > 0 ? String(info.passRewards) : '', on.pass);
+    d.append(logo, el('p', 'tag', 'Bounce. Chain. Shatter.'), wallet, play, energy, upgrades, shop);
+    if (info.runs === 0) {
+      d.append(el('p', 'hint', 'Drag to aim, release to fire. Beat a boss to bank your coins, then spend them here.'));
+    }
   }
 
   private stat(label: string, value: string, cls = ''): HTMLElement {
@@ -255,6 +281,8 @@ export class Screens {
     if (r.lost > 0) row('Coins lost (not banked)', `-${fmt(r.lost)}`, 'dim');
     row('Gems earned', `+${fmt(r.gems)}`, 'gem');
     row('Experience', `+${fmt(r.xp)} XP`);
+    if (r.chests > 0) row('Wooden Chests', `+${r.chests}`, 'gold');
+    if (r.passTiers > 0) row('Season pass', `+${r.passTiers} ${r.passTiers === 1 ? 'tier' : 'tiers'}`);
     d.append(table);
     if (r.levelsGained > 0) {
       const points = r.levelsGained === 1 ? '1 talent point' : `${r.levelsGained} talent points`;

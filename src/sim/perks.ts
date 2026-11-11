@@ -107,6 +107,8 @@ export interface Stats {
   perkChoices: number;
   /** Extra copies of the starter orb. */
   starterCopies: number;
+  /** Hit damage multiplier for orbs of each element, from the orb collection. */
+  orbPower: Record<Element, number>;
 }
 
 export function computeStats(perks: Record<string, number>, meta: MetaState = NO_META): Stats {
@@ -148,6 +150,7 @@ export function computeStats(perks: Record<string, number>, meta: MetaState = NO
     wards: m.wards,
     perkChoices: m.perkChoices,
     starterCopies: m.starterCopies,
+    orbPower: m.orbPower,
   };
 }
 
