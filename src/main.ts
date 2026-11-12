@@ -4,9 +4,19 @@ import { HttpTowerApi, type Board, type TowerApi } from './net/tower';
 import { createPlatform } from './platform/index';
 import { AD_PLACEMENTS, type Platform } from './platform/platform';
 import { SIMULATED_AD_MS } from './platform/simulated';
-import { SAVE_KEY, loadSave, setSaveMirror, writeSave } from './save';
+import { SAVE_KEY, SPEEDS, loadSave, resetProgress, setSaveMirror, writeSave } from './save';
 import { addEnergy, spendEnergy } from './sim/energy';
-import { buyUpgrade, freePoints, learnTalent, levelInfo, resetTalents, shopHasOffer, type ShopId } from './sim/meta';
+import {
+  buyUpgrade,
+  freePoints,
+  learnTalent,
+  levelInfo,
+  metaAt,
+  resetTalents,
+  shopHasOffer,
+  xpForRun,
+  type ShopId,
+} from './sim/meta';
 import { anyMergeable, mergeAll, mergeOnce } from './sim/orbs';
 import { claimableCount, syncPass } from './sim/pass';
 import {
@@ -34,8 +44,9 @@ import {
 import { Run } from './sim/run';
 import { H, REVIVE_GEM_COST, W, type Phase } from './sim/types';
 import { Sfx } from './view/audio';
-import { Fx } from './view/fx';
+import { Fx, setHaptics } from './view/fx';
 import { showShop, showTalents } from './view/hub';
+import { showLeaveRun, showPause, showSettings } from './view/menus';
 import { Renderer } from './view/renderer';
 import { mirrorToDevice, restoreFromDevice } from './storage';
 import { Screens } from './view/screens';
@@ -54,9 +65,24 @@ await restoreFromDevice(SAVE_KEY);
 setSaveMirror(mirrorToDevice);
 const save = loadSave();
 const sfx = new Sfx();
-sfx.muted = save.settings.muted;
 const fx = new Fx();
 const renderer = new Renderer(canvas);
+
+/** Developer mode exists only in development builds (npm run dev), never on the live site or in the apps. */
+const DEV_ALLOWED = import.meta.env.DEV;
+const devOn = (): boolean => DEV_ALLOWED && save.settings.dev;
+/** Set once this device has shown it cannot keep up with the glow pass. */
+let slowDevice = false;
+
+/** Push the saved settings into audio, effects and the renderer. */
+function applySettings(): void {
+  const s = save.settings;
+  sfx.muted = s.muted;
+  fx.shakeScale = s.shake ? 1 : 0;
+  setHaptics(s.haptics);
+  renderer.bloom = s.glow && !slowDevice;
+}
+applySettings();
 
 let run: Run | null = null;
 /** Bumped whenever a run starts or ends, so stale timers can tell they are stale. */
@@ -65,8 +91,10 @@ let lastPhase: Phase | null = null;
 let effectiveSpeed = 1;
 /** The tower week the current run belongs to, or null for a normal run. */
 let towerOfRun: number | null = null;
-
-const SPEEDS = [1, 2, 4];
+/** The run is frozen behind the pause menu. */
+let paused = false;
+/** The current run uses developer mode's maxed hero, so it banks nothing. */
+let devRun = false;
 
 const screens = new Screens(ui, {
   onSpeed: () => {
@@ -74,10 +102,9 @@ const screens = new Screens(ui, {
     writeSave(save);
   },
   onRecall: () => run?.recall(),
-  onMute: () => {
-    save.settings.muted = !save.settings.muted;
-    sfx.muted = save.settings.muted;
-    writeSave(save);
+  onCorner: (mode) => {
+    if (mode === 'pause') pauseRun();
+    else openSettings(showTitle, false);
   },
   onClick: () => sfx.click(),
 });
@@ -124,6 +151,8 @@ const now = (): number => Date.now();
 function showTitle(): void {
   runToken++;
   run = null;
+  paused = false;
+  devRun = false;
   lastPhase = null;
   fx.reset();
   renderer.reset();
@@ -143,6 +172,7 @@ function showTitle(): void {
       passRewards: claimableCount(save.pass),
       energy: energyText(save, now()),
       towerLeft: formatLeft(weekEndsAt(towerWeek(now())) - now()),
+      dev: devOn(),
     },
     {
       play: startRun,
@@ -350,6 +380,8 @@ function startTower(): void {
   }
   syncTower();
   runToken++;
+  paused = false;
+  devRun = false;
   fx.reset();
   renderer.reset();
   screens.close();
@@ -427,25 +459,30 @@ function openTalents(): void {
 }
 
 function startRun(): void {
-  // Every descent costs one energy.
-  if (!spendEnergy(save.energy, now())) {
+  const dev = devOn();
+  // Every descent costs one energy, except in developer mode.
+  if (!dev && !spendEnergy(save.energy, now())) {
     openEnergy(startRun);
     return;
   }
   towerOfRun = null;
+  paused = false;
+  devRun = dev;
   runToken++;
   fx.reset();
   renderer.reset();
   screens.close();
-  run = new Run((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0, runMeta(save));
+  run = new Run((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0, dev ? metaAt(1) : runMeta(save));
   lastPhase = null;
+  if (dev) return;
   save.runs++;
   writeSave(save);
 }
 
 function showPerks(): void {
   const r = run;
-  if (!r || r.s.phase !== 'perk' || !r.s.perkChoices) return;
+  // A delayed call can land while the pause menu is up; resuming shows the cards instead.
+  if (!r || paused || r.s.phase !== 'perk' || !r.s.perkChoices) return;
   screens.showPerks(
     r.s.perkChoices,
     r.s.perkReason,
@@ -462,7 +499,7 @@ function showPerks(): void {
 
 function showDeath(): void {
   const r = run;
-  if (!r || r.s.phase !== 'dead') return;
+  if (!r || paused || r.s.phase !== 'dead') return;
   // One revive per run, and none at all in the tower.
   if (r.s.revived || r.s.tower) {
     endRun();
@@ -499,15 +536,15 @@ function endRun(): void {
     return;
   }
   r.end();
-  const pay = r.payout();
-  const newBest = r.s.floor > save.bestFloor;
-  save.bestFloor = Math.max(save.bestFloor, r.s.floor);
-  const out = settleRun(
-    save,
-    { coins: pay.coins, gems: pay.gems, floor: r.s.floor, bossKills: r.s.stats.bossKills },
-    now(),
-  );
-  writeSave(save);
+  const dev = devRun;
+  const pay = dev ? { coins: 0, gems: 0, lost: 0 } : r.payout();
+  const newBest = !dev && r.s.floor > save.bestFloor;
+  let out = { xp: 0, level: levelInfo(save.xp).level, levelsGained: 0, chests: 0, passTiersGained: 0 };
+  if (!dev) {
+    save.bestFloor = Math.max(save.bestFloor, r.s.floor);
+    out = settleRun(save, { coins: pay.coins, gems: pay.gems, floor: r.s.floor, bossKills: r.s.stats.bossKills }, now());
+    writeSave(save);
+  }
   runToken++;
   screens.showResults(
     {
@@ -527,6 +564,7 @@ function endRun(): void {
       levelsGained: out.levelsGained,
       chests: out.chests,
       passTiers: out.passTiersGained,
+      note: dev ? 'Developer mode: nothing from this run was kept.' : undefined,
       canSpend:
         freePoints(save) > 0 ||
         shopHasOffer(save, 'forge') ||
@@ -538,6 +576,100 @@ function endRun(): void {
     showTitle,
   );
 }
+
+// ---------------------------------------------------------- settings and pause
+
+/** `back` is where the Back button goes; mid-run that is the pause menu, and progress cannot be reset. */
+function openSettings(back: () => void, inRun: boolean): void {
+  showSettings(screens, {
+    settings: save.settings,
+    devAllowed: DEV_ALLOWED,
+    canVibrate: typeof navigator.vibrate === 'function',
+    changed: () => {
+      applySettings();
+      writeSave(save);
+    },
+    reset: inRun
+      ? null
+      : () => {
+          resetProgress(save, now());
+          writeSave(save);
+          showTitle();
+        },
+    back,
+  });
+}
+
+/** Pausing is possible whenever the player is in the dungeon and no other screen is up. */
+function canPause(): boolean {
+  const p = run?.s.phase;
+  return !!run && !paused && !screens.isOpen && (p === 'aim' || p === 'firing' || p === 'resolve' || p === 'perk');
+}
+
+function pauseRun(): void {
+  if (!canPause()) return;
+  paused = true;
+  openPauseMenu();
+}
+
+function openPauseMenu(): void {
+  const r = run;
+  if (!r) return;
+  showPause(screens, { floor: r.s.floor, tower: r.s.tower }, { resume: resumeRun, settings: () => openSettings(openPauseMenu, true), leave: confirmLeave });
+}
+
+function resumeRun(): void {
+  paused = false;
+  screens.close();
+  // Paused between clearing a floor and the cards appearing: show them now.
+  if (run?.s.phase === 'perk') showPerks();
+}
+
+function confirmLeave(): void {
+  const r = run;
+  if (!r) return;
+  const pay = r.payout();
+  showLeaveRun(
+    screens,
+    { tower: r.s.tower, dev: devRun, coins: pay.coins, lost: pay.lost, xp: xpForRun(r.s.floor, r.s.stats.bossKills) },
+    { leave: leaveRun, stay: openPauseMenu },
+  );
+}
+
+/**
+ * Leave from the pause menu: the run ends where it stands. A dungeon run pays
+ * what a death here would (banked coins, a share of the rest, XP); a tower run
+ * keeps its XP but is not sent to the leaderboard, since only finished climbs count.
+ */
+function leaveRun(): void {
+  const r = run;
+  if (!r) return;
+  if (!devRun) {
+    const bossKills = r.s.stats.bossKills;
+    if (r.s.tower) {
+      settleRun(save, { coins: 0, gems: 0, floor: r.s.floor, bossKills, chests: 0 }, now());
+    } else {
+      const pay = r.payout();
+      save.bestFloor = Math.max(save.bestFloor, r.s.floor);
+      settleRun(save, { coins: pay.coins, gems: pay.gems, floor: r.s.floor, bossKills }, now());
+    }
+    writeSave(save);
+  }
+  showTitle();
+}
+
+// Leaving the app or switching tabs mid-run pauses it.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') pauseRun();
+});
+
+// Escape or P toggles the pause menu on a keyboard.
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' && e.key.toLowerCase() !== 'p') return;
+  if (e.target instanceof HTMLInputElement) return;
+  if (screens.isShowing('pause')) resumeRun();
+  else pauseRun();
+});
 
 function onPhase(phase: Phase): void {
   const r = run;
@@ -554,7 +686,7 @@ function onPhase(phase: Phase): void {
 /** One frame of game time: simulate, feed the effects, draw. */
 function tick(dt: number): void {
   const r = run;
-  if (r) {
+  if (r && !paused) {
     // Long turns speed themselves up so nobody waits on the last few orbs.
     const t = r.s.phase === 'firing' ? r.s.turnTime : 0;
     const speed = Math.min(8, save.settings.speed * (t > 14 ? 3 : t > 7 ? 2 : 1));
@@ -567,14 +699,14 @@ function tick(dt: number): void {
       onPhase(r.s.phase);
     }
   }
-  fx.update(dt);
+  if (!paused) fx.update(dt);
   renderer.draw(r, fx, aim, dt);
   screens.setHud({
     inRun: !!r && r.s.phase !== 'over',
     speed: save.settings.speed,
     effective: r ? effectiveSpeed : save.settings.speed,
     canRecall: !!r && r.s.phase === 'firing' && r.s.turnTime > 1.5 && !screens.isOpen,
-    muted: save.settings.muted,
+    corner: r ? (canPause() ? 'pause' : null) : screens.isShowing('title') ? 'settings' : null,
     energy: energyText(save, now()),
   });
 }
@@ -589,7 +721,10 @@ function frame(now: number): void {
   // Bloom is the costliest pass. Drop it on devices that cannot hold ~40fps.
   if (renderer.bloom && document.visibilityState === 'visible' && raw < 0.25) {
     slowFrames = raw > 0.026 ? slowFrames + 1 : Math.max(0, slowFrames - 2);
-    if (slowFrames > 120) renderer.bloom = false;
+    if (slowFrames > 120) {
+      slowDevice = true;
+      renderer.bloom = false;
+    }
   }
   tick(dt);
   requestAnimationFrame(frame);

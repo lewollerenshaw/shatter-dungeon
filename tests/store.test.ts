@@ -338,7 +338,8 @@ describe('save file with the store', () => {
   });
 
   it('round-trips a played profile', () => {
-    const w = { v: 4 as const, bestFloor: 9, runs: 4, settings: { muted: true, speed: 2 }, tower: parseSave(null, T0).tower, ...newWallet(T0, 4242) };
+    const settings = { muted: true, speed: 2, shake: false, haptics: true, glow: false, dev: true };
+    const w = { v: 4 as const, bestFloor: 9, runs: 4, settings, tower: parseSave(null, T0).tower, ...newWallet(T0, 4242) };
     grantProduct(w, 'starter_pack');
     openChest(w, 'gold');
     mergeAll(w.inv);

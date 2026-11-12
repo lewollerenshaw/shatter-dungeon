@@ -55,8 +55,16 @@ interface Banner {
   max: number;
 }
 
+let hapticsOn = true;
+
+/** The Vibration setting. */
+export function setHaptics(on: boolean): void {
+  hapticsOn = on;
+}
+
 /** Haptic tap. Browsers reject vibration before the first real touch, so check first. */
 function buzz(pattern: number | number[]): void {
+  if (!hapticsOn) return;
   const active = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation;
   if (navigator.vibrate && (!active || active.hasBeenActive)) navigator.vibrate(pattern);
 }
@@ -74,6 +82,8 @@ export class Fx {
   trauma = 0;
   hitStop = 0;
   redFlash = 0;
+  /** The Screen shake setting: 1 normal, 0 off. */
+  shakeScale = 1;
   whiteFlash = 0;
   /** Briefly pulses the combo counter. */
   comboPop = 0;
@@ -394,7 +404,7 @@ export class Fx {
   }
 
   shakeOffset(): [number, number] {
-    const s = this.trauma * this.trauma * 9;
+    const s = this.trauma * this.trauma * 9 * this.shakeScale;
     return s > 0.05 ? [(Math.random() * 2 - 1) * s, (Math.random() * 2 - 1) * s] : [0, 0];
   }
 

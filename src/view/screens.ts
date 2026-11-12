@@ -44,6 +44,8 @@ export interface ResultsData {
   chests: number;
   /** Season pass tiers unlocked by this run. */
   passTiers: number;
+  /** An extra line under the table, e.g. that developer mode kept nothing. */
+  note?: string;
 }
 
 export interface TitleInfo {
@@ -66,6 +68,8 @@ export interface TitleInfo {
   energy: string;
   /** Time left in this week's tower, e.g. "3d 4h". */
   towerLeft: string;
+  /** Developer mode is on: runs use a fully upgraded hero. */
+  dev: boolean;
 }
 
 export interface HudState {
@@ -75,31 +79,45 @@ export interface HudState {
   /** Speed actually in effect (long turns accelerate on their own). */
   effective: number;
   canRecall: boolean;
-  muted: boolean;
+  /** What the top-right corner button does right now, if it is shown at all. */
+  corner: 'settings' | 'pause' | null;
   /** Text for any live energy readout on screen. */
   energy: string;
 }
 
 /** DOM overlays: title, perk choice, death, results, and the in-run buttons. */
+const GEAR_ICON =
+  '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor">' +
+  '<circle cx="12" cy="12" r="5.6" stroke-width="3"/><circle cx="12" cy="12" r="8.4" stroke-width="2.6" stroke-dasharray="3.3 3.3"/></svg>';
+const PAUSE_ICON =
+  '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="currentColor">' +
+  '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+
 export class Screens {
   private layer: HTMLElement | null = null;
+  /** The first class name of the open screen ('title', 'perks', 'pause'...). */
+  private openKind = '';
   private speedBtn: HTMLButtonElement;
   private recallBtn: HTMLButtonElement;
-  private muteBtn: HTMLButtonElement;
+  /** Top-right: settings on the title screen, pause during a run. */
+  private cornerBtn: HTMLButtonElement;
+  private cornerMode: HudState['corner'] = null;
 
   constructor(
     private root: HTMLElement,
-    handlers: { onSpeed(): void; onRecall(): void; onMute(): void; onClick(): void },
+    handlers: { onSpeed(): void; onRecall(): void; onCorner(mode: 'settings' | 'pause'): void; onClick(): void },
   ) {
-    this.muteBtn = el('button', 'hud-btn mute');
-    this.muteBtn.setAttribute('aria-label', 'Toggle sound');
-    this.muteBtn.onclick = () => handlers.onMute();
+    this.cornerBtn = el('button', 'hud-btn corner');
+    this.cornerBtn.hidden = true;
+    this.cornerBtn.onclick = () => {
+      if (this.cornerMode) handlers.onCorner(this.cornerMode);
+    };
     this.speedBtn = el('button', 'hud-btn speed');
     this.speedBtn.setAttribute('aria-label', 'Game speed');
     this.speedBtn.onclick = () => handlers.onSpeed();
     this.recallBtn = el('button', 'hud-btn recall', 'Recall orbs');
     this.recallBtn.onclick = () => handlers.onRecall();
-    root.append(this.muteBtn, this.speedBtn, this.recallBtn);
+    root.append(this.cornerBtn, this.speedBtn, this.recallBtn);
     root.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('button')) handlers.onClick();
     });
@@ -109,11 +127,22 @@ export class Screens {
     return this.layer !== null;
   }
 
+  /** True while the screen opened with this class name is showing. */
+  isShowing(kind: string): boolean {
+    return this.layer !== null && this.openKind === kind;
+  }
+
   setHud(s: HudState): void {
-    this.muteBtn.textContent = '♪';
-    this.muteBtn.setAttribute('aria-pressed', String(!s.muted));
-    this.muteBtn.title = s.muted ? 'Sound off' : 'Sound on';
-    this.muteBtn.classList.toggle('off', s.muted);
+    if (s.corner !== this.cornerMode) {
+      this.cornerMode = s.corner;
+      this.cornerBtn.hidden = s.corner === null;
+      if (s.corner) {
+        const label = s.corner === 'pause' ? 'Pause' : 'Settings';
+        this.cornerBtn.innerHTML = s.corner === 'pause' ? PAUSE_ICON : GEAR_ICON;
+        this.cornerBtn.setAttribute('aria-label', label);
+        this.cornerBtn.title = label;
+      }
+    }
     this.speedBtn.hidden = !s.inRun;
     this.speedBtn.textContent = `${s.effective}×`;
     this.speedBtn.classList.toggle('hot', s.speed > 1);
@@ -131,6 +160,7 @@ export class Screens {
   close(): void {
     this.layer?.remove();
     this.layer = null;
+    this.openKind = '';
   }
 
   open(cls: string): HTMLElement {
@@ -138,6 +168,7 @@ export class Screens {
     const d = el('div', `screen ${cls}`);
     this.root.appendChild(d);
     this.layer = d;
+    this.openKind = cls.split(' ')[0];
     return d;
   }
 
@@ -187,6 +218,7 @@ export class Screens {
     tile(shop, 'store', '▣', 'Store', 'Chests, gems', info.chests > 0 ? String(info.chests) : '', on.store);
     tile(shop, 'pass', '★', 'Pass', 'Season rewards', info.passRewards > 0 ? String(info.passRewards) : '', on.pass);
     d.append(logo, el('p', 'tag', 'Bounce. Chain. Shatter.'), wallet, play, tower, energy, upgrades, shop);
+    if (info.dev) d.append(el('p', 'devtag', 'Developer mode  ·  runs use a fully upgraded hero'));
     if (info.runs === 0) {
       d.append(el('p', 'hint', 'Drag to aim, release to fire. Beat a boss to bank your coins, then spend them here.'));
     }
@@ -305,6 +337,7 @@ export class Screens {
     if (r.chests > 0) row('Wooden Chests', `+${r.chests}`, 'gold');
     if (r.passTiers > 0) row('Season pass', `+${r.passTiers} ${r.passTiers === 1 ? 'tier' : 'tiers'}`);
     d.append(table);
+    if (r.note) d.append(el('p', 'devtag', r.note));
     if (r.levelsGained > 0) {
       const points = r.levelsGained === 1 ? '1 talent point' : `${r.levelsGained} talent points`;
       d.append(el('p', 'levelup', `Level ${r.level} reached  ·  ${points} to spend`));

@@ -103,21 +103,21 @@ button:focus-visible {
   transform: scale(0.94);
 }
 
-.hud-btn.mute {
+/* Top-right: settings on the title screen, pause during a run. */
+.hud-btn.corner {
   top: 8px;
   right: 10px;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   padding: 0;
-  font-size: 17px;
+  display: grid;
+  place-items: center;
   color: var(--ink);
   z-index: 3;
 }
 
-.hud-btn.mute.off {
-  color: var(--dim);
-  opacity: 0.6;
-  text-decoration: line-through;
+.hud-btn.corner svg {
+  display: block;
 }
 
 .hud-btn.speed {
@@ -1364,6 +1364,139 @@ input.name.bad {
 
 .tower > .btn {
   flex: none;
+}
+
+/* ------------------------------------------------- settings, pause, leave */
+
+.btn.danger {
+  color: var(--bad);
+  background: rgba(255, 77, 109, 0.08);
+  border-color: rgba(255, 77, 109, 0.45);
+}
+
+.btn.danger.armed {
+  color: #05050f;
+  background: var(--bad);
+  border-color: var(--bad);
+}
+
+.set {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 10px 14px;
+  text-align: left;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.set .body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.set b {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.set small {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--dim);
+}
+
+.switch {
+  flex: none;
+  position: relative;
+  width: 52px;
+  height: 32px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  transition: background 0.15s;
+}
+
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--ink);
+  transition: transform 0.15s;
+}
+
+.switch[aria-checked='true'] {
+  background: var(--cyan);
+  border-color: var(--cyan);
+  box-shadow: 0 0 14px rgba(94, 230, 255, 0.4);
+}
+
+.switch[aria-checked='true']::after {
+  transform: translateX(20px);
+  background: #05050f;
+}
+
+.seg {
+  flex: none;
+  display: flex;
+  padding: 3px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.seg button {
+  min-width: 44px;
+  height: 36px;
+  border-radius: 11px;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--dim);
+}
+
+.seg button[aria-checked='true'] {
+  color: #05050f;
+  background: var(--cyan);
+}
+
+.settings .list > .btn {
+  flex: none;
+  align-self: center;
+  max-width: 280px;
+}
+
+.settings .list > .fine {
+  text-align: left;
+}
+
+.devtag {
+  padding: 6px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #05050f;
+  background: var(--gold);
+}
+
+.screen.pause h2 {
+  font-size: 34px;
+}
+
+.screen.leave .note {
+  max-width: 310px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: var(--ink);
 }
 
 @media (prefers-reduced-motion: reduce) {

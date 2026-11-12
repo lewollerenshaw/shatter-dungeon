@@ -19,12 +19,30 @@ export interface TowerSave {
   pending: { week: number; log: RunInput[] } | null;
 }
 
+/** Player preferences. They survive a progress reset. */
+export interface Settings {
+  muted: boolean;
+  /** Chosen game speed: 1, 2 or 4. */
+  speed: number;
+  shake: boolean;
+  /** Phone vibration on hits and deaths, where the device supports it. */
+  haptics: boolean;
+  /** The bloom glow. The game may still drop it on a device that cannot keep up. */
+  glow: boolean;
+  /** Developer mode: runs use a fully upgraded hero. Only honoured in development builds. */
+  dev: boolean;
+}
+
+export const SPEEDS = [1, 2, 4];
+
+export const defaultSettings = (): Settings => ({ muted: false, speed: 1, shake: true, haptics: true, glow: true, dev: false });
+
 /** Persistent profile, kept in localStorage. */
 export interface SaveData extends Wallet {
   v: 4;
   bestFloor: number;
   runs: number;
-  settings: { muted: boolean; speed: number };
+  settings: Settings;
   tower: TowerSave;
 }
 
@@ -59,7 +77,23 @@ function newTower(now: number): TowerSave {
 
 function defaults(now: number): SaveData {
   const seed = (now ^ (Math.random() * 0x7fffffff)) | 0;
-  return { v: 4, bestFloor: 0, runs: 0, settings: { muted: false, speed: 1 }, tower: newTower(now), ...newWallet(now, seed) };
+  return { v: 4, bestFloor: 0, runs: 0, settings: defaultSettings(), tower: newTower(now), ...newWallet(now, seed) };
+}
+
+function readSettings(raw: unknown): Settings {
+  const d = defaultSettings();
+  const s = raw as Partial<Settings> | null;
+  if (!s || typeof s !== 'object') return d;
+  const speed = Number(s.speed);
+  // Settings added later default to on, so only an explicit false turns them off.
+  return {
+    muted: s.muted === true,
+    speed: SPEEDS.includes(speed) ? speed : d.speed,
+    shake: s.shake !== false,
+    haptics: s.haptics !== false,
+    glow: s.glow !== false,
+    dev: s.dev === true,
+  };
 }
 
 function readTower(raw: unknown, now: number): TowerSave {
@@ -98,7 +132,6 @@ export function parseSave(raw: string | null, now: number = Date.now()): SaveDat
   try {
     const p = JSON.parse(raw) as Partial<SaveData> | null;
     if (!p || typeof p !== 'object') return d;
-    const speed = Number(p.settings?.speed);
     const chests = {} as Record<ChestId, number>;
     for (const id of CHEST_IDS) chests[id] = count(p.chests?.[id]);
     return {
@@ -106,7 +139,7 @@ export function parseSave(raw: string | null, now: number = Date.now()): SaveDat
       bestFloor: count(p.bestFloor),
       runs: count(p.runs),
       tower: readTower(p.tower, now),
-      settings: { muted: Boolean(p.settings?.muted), speed: [1, 2, 4].includes(speed) ? speed : 1 },
+      settings: readSettings(p.settings),
       coins: count(p.coins),
       gems: Number.isFinite(Number(p.gems)) ? count(p.gems) : STARTER_GEMS,
       xp: count(p.xp),
@@ -122,6 +155,18 @@ export function parseSave(raw: string | null, now: number = Date.now()): SaveDat
   } catch {
     return d;
   }
+}
+
+/**
+ * Wipe all progress in place: currencies, upgrades, talents, orbs, chests,
+ * pass, records. Settings are kept, and so is the leaderboard identity, so the
+ * player does not reappear on this week's board as a stranger.
+ */
+export function resetProgress(save: SaveData, now: number = Date.now()): void {
+  const fresh = defaults(now);
+  fresh.settings = { ...save.settings };
+  fresh.tower = { ...fresh.tower, playerId: save.tower.playerId, name: save.tower.name };
+  Object.assign(save, fresh);
 }
 
 export function loadSave(): SaveData {

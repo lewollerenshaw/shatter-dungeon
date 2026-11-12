@@ -23,7 +23,7 @@ const SHOP_COPY: Record<ShopId, { title: string; sub: string }> = {
 };
 
 /** Back button, centred title, and a status pill on the right. */
-function header(title: string, pill: HTMLElement, onBack: () => void): HTMLElement {
+export function header(title: string, pill: HTMLElement, onBack: () => void): HTMLElement {
   const bar = el('div', 'bar');
   const back = el('button', 'back', '‹ Back');
   back.onclick = onBack;
