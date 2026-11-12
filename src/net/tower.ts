@@ -60,7 +60,7 @@ export class HttpTowerApi implements TowerApi {
     return (await res.json()) as Board;
   }
 
-  /** Throws only if the server cannot be reached. A refusal comes back as `ok: false`. */
+  /** Throws if the server cannot be reached or is not there. A refusal comes back as `ok: false`. */
   async submit(run: Submission): Promise<SubmitResult> {
     const res = await this.call('/api/scores', {
       method: 'POST',
@@ -68,6 +68,10 @@ export class HttpTowerApi implements TowerApi {
       body: JSON.stringify(run),
     });
     const data = (await res.json().catch(() => null)) as { ok?: boolean; error?: string; message?: string } | null;
+    // The leaderboard always answers in JSON. Anything else (a static host's 404 page,
+    // for instance) means there is no leaderboard at this address, which is the same
+    // as not reaching it: the run should stay queued, not be thrown away.
+    if (data === null) throw new Error(`no leaderboard at ${this.base || 'this address'} (${res.status})`);
     if (res.ok && data?.ok) return data as SubmitResult;
     return {
       ok: false,

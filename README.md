@@ -13,6 +13,15 @@ npm run dev:lan    # same, reachable from a phone on your network
 npm run server     # leaderboard server on http://localhost:8787 (only the Weekly Tower needs it)
 ```
 
+### Hosted version
+
+The browser build is published to GitHub Pages at `https://<your-github-username>.github.io/shatter-dungeon/`. Every push to `master` runs `.github/workflows/pages.yml`, which runs the tests, builds, and republishes the site; a failing test stops the deploy.
+
+Two things differ from running it locally:
+
+- It is the browser build, so the store and ads are simulated and gems are free. The store screen says so.
+- GitHub Pages serves only static files, so the leaderboard server is not there. The Weekly Tower still plays and reports the leaderboard as unreachable, unless the site is built with `VITE_API_URL` pointing at a hosted copy of `server/`.
+
 | Command | What it does |
 |---|---|
 | `npm test` | Vitest suite for the simulation |
